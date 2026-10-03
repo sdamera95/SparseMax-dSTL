@@ -68,13 +68,15 @@ import numpy as np
 import optax
 from mujoco import mjx
 
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.core_study import methods
-from sparsemax_dstl.operators import sparsemax_weights
+from sparsemax_dstl.jax import methods
+from sparsemax_dstl.jax.operators import sparsemax_weights
 from sparsemax_dstl.stl import Program, Step
 from sparsemax_dstl.tasks import human as Hm
 from sparsemax_dstl.tasks import panda as P
 from sparsemax_dstl.tasks import workspace as W
+from sparsemax_dstl.tasks import workspace_mjx as Wm
 
 SEED = W.TUNING_SEED
 
@@ -128,8 +130,8 @@ def parse(configs):
 
 
 def instance_set(sc, rg):
-    n = W.regime_instances(SEED, 1, sc, rg)["accepted"]
-    return W.regime_instances(SEED, n, sc, rg)
+    n = Wm.regime_instances(SEED, 1, sc, rg)["accepted"]
+    return Wm.regime_instances(SEED, n, sc, rg)
 
 
 def pick(I, cands):
@@ -347,7 +349,7 @@ def solve_witness(I, mx):
 
     def loss(Wf, inst):
         Q = keyframes(Wf, inst, K, kp, kh, free)
-        Z = W.scores(mx, plant, sc, inst, kin_states(Q, per, T))
+        Z = Wm.scores(mx, plant, sc, inst, kin_states(Q, per, T))
         speed = Z[:, 3:3 + N_R]
         sep = Z[:, 3 + N_R:3 + N_R + N_R * n_h]
         slow = Z[:, 3 + N_R + N_R * n_h:].reshape(-1, N_R, n_h).min(-1)
@@ -403,15 +405,15 @@ def witness_main(out, n_inst, configs):
         n_h = len(I["human_radii"])
         prog = core_program(sc, n_h)
         rows_ = core_program(sc, n_h, pruned=False)
-        exact = jax.jit(lambda Z: stl.evaluate(prog, Z, "exact"))
-        ref_p = jax.jit(lambda M: stl.robustness(prog, M, "exact")[0])
-        ref_u = jax.jit(lambda M: stl.robustness(rows_, M, "exact")[0])
+        exact = jax.jit(lambda Z: stl_jax.evaluate(prog, Z, "exact"))
+        ref_p = jax.jit(lambda M: stl_jax.robustness(prog, M, "exact")[0])
+        ref_u = jax.jit(lambda M: stl_jax.robustness(rows_, M, "exact")[0])
         referee, per_inst = [], []
         for i in range(len(cands)):  # over the chosen instances (a handful)
             inst = {"pick": I["pick"][i], "handover": I["handover"][i], "human_centres": I["human_centres"][i], "human_radii": I["human_radii"]}
             X = witness_states(Q[i], sc)
-            M = W.margins(mx, plant, sc, inst, X)
-            Z = W.scores(mx, plant, sc, inst, X)
+            M = Wm.margins(mx, plant, sc, inst, X)
+            Z = Wm.scores(mx, plant, sc, inst, X)
             rho, full = float(ref_p(M)), float(ref_u(M))
             table, conj, leaf = node_table(prog, exact, Z, sc, c[1])
             conj_ref = np.asarray(conjuncts(prog, exact, M))
@@ -438,7 +440,7 @@ def rollout(mx, n_sub, x0, U):
     blk = U.reshape(U.shape[0] // BLOCK, BLOCK, U.shape[-1])
 
     def body(x, Ub):
-        Y = W.physics_rollout(mx, n_sub, x, Ub)
+        Y = Wm.physics_rollout(mx, n_sub, x, Ub)
         return Y[-1], Y[1:]
 
     _, Y = jax.lax.scan(jax.checkpoint(body), x0, blk)
@@ -456,7 +458,7 @@ def track(mx, n_sub, x0, Qs, u_max):
         M = mjx.full_m(mx, d)
         u = M @ (TRACK ** 2 * (ref[:nq] - x[:nq]) + 2 * TRACK * (ref[nq:] - x[nq:]))
         u = jnp.clip(u, -u_max, u_max)
-        return W.physics_rollout(mx, n_sub, x, u[None])[-1], u
+        return Wm.physics_rollout(mx, n_sub, x, u[None])[-1], u
 
     return jax.lax.scan(interval, x0, jnp.concatenate([Qs[1:, :nq], Qs[:-1, nq:]], -1))[1]
 
@@ -497,7 +499,7 @@ def run_main(wit, H, D, hs, iterations, out, lr=LR, starts="both"):
 
     def ZX(V, a):
         X = rollout(mx, n_sub, a["x0"], V * u_max)[::stride]
-        return jax.lax.optimization_barrier(W.scores(mx, plant, sc, inst_of(a), X)), X
+        return jax.lax.optimization_barrier(Wm.scores(mx, plant, sc, inst_of(a), X)), X
 
     # starts: the tracked witness and the random start, per instance
     Qs = jnp.asarray(np.stack([np.asarray(witness_states(Qk[i], scenario(H, H_CTRL))) for i in range(n)]), dt)  # over instances
@@ -519,8 +521,8 @@ def run_main(wit, H, D, hs, iterations, out, lr=LR, starts="both"):
         full = core_program(sc, n_h, pruned=False)
         for name in METHODS:  # the two matched semantics
             sem = methods.SEMANTICS[name]
-            a = jax.jit(jax.value_and_grad(lambda Z: stl.robustness(prog, Z, sem, EPS_RUN)[0]))(Z0)
-            b = jax.jit(jax.value_and_grad(lambda Z: stl.robustness(full, Z, sem, EPS_RUN)[0]))(Z0)
+            a = jax.jit(jax.value_and_grad(lambda Z: stl_jax.robustness(prog, Z, sem, EPS_RUN)[0]))(Z0)
+            b = jax.jit(jax.value_and_grad(lambda Z: stl_jax.robustness(full, Z, sem, EPS_RUN)[0]))(Z0)
             check[name] = [float(a[0]), float(b[0]), float(jnp.max(jnp.abs(a[1] - b[1])))]
         del full
 
@@ -530,12 +532,12 @@ def run_main(wit, H, D, hs, iterations, out, lr=LR, starts="both"):
 
     def forward(V, a):
         Z, X = ZX(V, a)
-        return Z, W.margins(mx, plant, sc, inst_of(a), X)
+        return Z, Wm.margins(mx, plant, sc, inst_of(a), X)
 
     def leafgrads(Z):
         vs, Gs = [], []
         for nm in METHODS:  # the two matched semantics: sparsemax rows first, then lse
-            f = lambda Z, e: stl.robustness(prog, Z, methods.SEMANTICS[nm], e)[0]
+            f = lambda Z, e: stl_jax.robustness(prog, Z, methods.SEMANTICS[nm], e)[0]
             v, G = jax.vmap(jax.value_and_grad(f), in_axes=(None, 0))(Z, jnp.asarray(EPS, dt))
             vs.append(v)
             Gs.append(G)
@@ -571,7 +573,7 @@ def run_main(wit, H, D, hs, iterations, out, lr=LR, starts="both"):
         v, G = leaf_f(Z)
         return {"Z": Z, "M": M, "values": v} | stat_f(G, pull_c(V, runs, G))
 
-    exact = jax.jit(lambda Z: stl.evaluate(prog, Z, "exact"))
+    exact = jax.jit(lambda Z: stl_jax.evaluate(prog, Z, "exact"))
     res = {"H": H, "D": D, "h_s": str(hs), "samples": sc.samples, "intervals": N, "candidates": cands, "starts": start,
            "path_depth": depth, "prune_check": check, "track_seconds": track_s, "iterations": iterations, "lr": lr,
            "diag_compile_seconds": diag_compile_s, "methods": {}}
@@ -581,9 +583,9 @@ def run_main(wit, H, D, hs, iterations, out, lr=LR, starts="both"):
 
         def J(V, a):
             Z, X = ZX(V, a)
-            rho = stl.robustness(prog, Z, sem, EPS_RUN)[0]
+            rho = stl_jax.robustness(prog, Z, sem, EPS_RUN)[0]
             E = jnp.sum(V ** 2) / V.shape[0]
-            ref = stl.robustness(prog, W.margins(mx, plant, sc, inst_of(a), jax.lax.stop_gradient(X)), "exact")[0]
+            ref = stl_jax.robustness(prog, Wm.margins(mx, plant, sc, inst_of(a), jax.lax.stop_gradient(X)), "exact")[0]
             return rho - LAM * E, (rho, ref, E)
 
         grad = jax.value_and_grad(J, has_aux=True)

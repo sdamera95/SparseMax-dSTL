@@ -82,9 +82,10 @@ def starts_main(H, start_dir, out):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
+    from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
     sel = np.nonzero(np.isclose(z["wait"], W10))[0]
@@ -102,8 +103,8 @@ def starts_main(H, start_dir, out):
     with jax.enable_x64(True):  # inverse kinematics, margins and exact conjuncts in float64, as E037's starts
         mx64 = mjx.put_model(m, impl="jax")
         hum = {k: jnp.asarray(person[k]) for k in ("human_centres", "human_radii")}
-        ik_j = jax.jit(lambda tg, q: W.ik(mx64, plant, sc.robot_spacing, tg, q, jnp.asarray(lo), jnp.asarray(hi)))
-        margins_j = jax.jit(jax.vmap(lambda X_, p, hd: W.margins(mx64, plant, sc, {"pick": p, "handover": hd, **hum}, X_)))
+        ik_j = jax.jit(lambda tg, q: Wm.ik(mx64, plant, sc.robot_spacing, tg, q, jnp.asarray(lo), jnp.asarray(hi)))
+        margins_j = jax.jit(jax.vmap(lambda X_, p, hd: Wm.margins(mx64, plant, sc, {"pick": p, "handover": hd, **hum}, X_)))
         q_in, miss_in = (np.asarray(v) for v in ik_j(jnp.asarray(zone + (r - a[:, None] * r) * ray, jnp.float64), jnp.asarray(q_hold, jnp.float64)))
     entry_t = np.asarray([U.ENTRY[round(float(d), 2)] for d in depth])
     tk, qk = U.keyframes(np.full(n, w), np.broadcast_to(q0, (n, 7)), q_via, q_in, q_hold, q_hand, entry_t)
@@ -120,7 +121,7 @@ def starts_main(H, start_dir, out):
         prog = E.core_program(sc, len(person["human_radii"]))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
-        conj = np.asarray(jax.jit(jax.vmap(lambda M_: (lambda v: jnp.concatenate([v[s] for s in root.sources], -1)[..., r_idx])(stl.evaluate(prog, M_, "exact"))))(jnp.asarray(Mg)))
+        conj = np.asarray(jax.jit(jax.vmap(lambda M_: (lambda v: jnp.concatenate([v[s] for s in root.sources], -1)[..., r_idx])(stl_jax.evaluate(prog, M_, "exact"))))(jnp.asarray(Mg)))
     entry_win = (t >= U.T_VIA - 1e-9) & (t <= U.T_HOLD + 1e-9)
     upto = t <= w + 1 + 1e-9
     pickw = (t >= w - 1e-9) & upto
@@ -229,7 +230,7 @@ def run_main(H, form, path, iterations, out):
 
     import warp as wp
 
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
     set_horizon(H)
     t0 = time.perf_counter()
     I = X.load(path, "all")
@@ -237,7 +238,7 @@ def run_main(H, form, path, iterations, out):
         raise ValueError("the instance holds " + str(I["hc"].shape[1]) + " samples, not " + str(H38.samples(H)))
     if form == "conj":
         from examples import e040_conj as C40
-        from sparsemax_dstl import constrained_conj as CC
+        from sparsemax_dstl.warp import solver_conjuncts as CC
         chain, referee = C40.build(I)
         state = CC.init_state(I["V0"], U.ALPHA0, chain.K)
         solver = CC

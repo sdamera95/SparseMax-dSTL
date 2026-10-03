@@ -71,9 +71,10 @@ def robot_centres(X):
 
     from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     with jax.enable_x64(True):
         mx = mjx.put_model(E.plant.model, impl="jax")
-        f = partial(W.points, mx, E.plant, W.Scenario().robot_spacing)
+        f = partial(Wm.points, mx, E.plant, W.Scenario().robot_spacing)
         one = lambda x: jax.jvp(f, (x[:7],), (x[7:],))  # noqa: E731
         (_, C), (_, Cd) = jax.jit(jax.vmap(jax.vmap(one)))(jnp.asarray(X, jnp.float64))
         return np.asarray(C), np.linalg.norm(np.asarray(Cd), axis=-1)
@@ -102,9 +103,10 @@ def scan_main(start_dir, geo_path, out, tag, roots=False, arm_names=None):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     t0 = time.perf_counter()
     geos = list(load_geometries(geo_path).values())
@@ -132,14 +134,14 @@ def scan_main(start_dir, geo_path, out, tag, roots=False, arm_names=None):
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         base = {k: jnp.asarray(insts[0][k]) for k in ("pick", "handover", "human_radii")}
-        marg = jax.jit(jax.vmap(jax.vmap(lambda hc, x: W.margins(mx, plant, sc, dict(base, human_centres=hc), x), (None, 0)), (0, None)))
-        scor = jax.jit(jax.vmap(jax.vmap(lambda hc, x: W.scores(mx, plant, sc, dict(base, human_centres=hc), x), (None, 0)), (0, None)))
+        marg = jax.jit(jax.vmap(jax.vmap(lambda hc, x: Wm.margins(mx, plant, sc, dict(base, human_centres=hc), x), (None, 0)), (0, None)))
+        scor = jax.jit(jax.vmap(jax.vmap(lambda hc, x: Wm.scores(mx, plant, sc, dict(base, human_centres=hc), x), (None, 0)), (0, None)))
         Mg = np.asarray(marg(jnp.asarray(hc_all), jnp.asarray(X[sel])))  # (G, B, T, P)
         G_, B_ = Mg.shape[:2]
         flat = lambda a: jnp.asarray(a.reshape((G_ * B_,) + a.shape[2:]))  # noqa: E731
 
         def ev(scores, sem, eps):
-            f = jax.jit(jax.vmap(lambda M_: (lambda v: (v[-1][0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx]))(stl.evaluate(prog, M_, sem, eps))))
+            f = jax.jit(jax.vmap(lambda M_: (lambda v: (v[-1][0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx]))(stl_jax.evaluate(prog, M_, sem, eps))))
             r, c = f(scores)
             return np.asarray(r).reshape(G_, B_), np.asarray(c).reshape(G_, B_, -1)
         r_ex, c_ex = ev(flat(Mg), "exact", None)

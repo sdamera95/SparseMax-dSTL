@@ -35,10 +35,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..operators import lower_max, lower_min
-from ..stl import (Always, And, Atom, Eventually, Not, Until, compile_formula, evaluate, exact_max, exact_min,
-                   gm_power, lse_min, lse_plain_max)
-from ..stl.program import read
+from ..jax.evaluator import evaluate, exact_max, exact_min, gm_power, lse_min, lse_plain_max, read
+from ..jax.operators import lower_max, lower_min
+from ..stl import Always, And, Atom, Eventually, Not, Until, compile_formula
 
 H = 0.1  # sampling period, s
 V_MAX = 1.0  # m/s

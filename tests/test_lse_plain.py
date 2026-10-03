@@ -15,10 +15,11 @@ import numpy as np
 import pytest
 import warp as wp
 
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.core_study import methods
+from sparsemax_dstl.jax import methods
 from sparsemax_dstl.stl.oracle import random_formula
-from sparsemax_dstl.stl.warp_backend import Evaluator, evaluate_warp, matched_param, robustness_warp
+from sparsemax_dstl.warp.evaluator import Evaluator, evaluate_warp, matched_param, robustness_warp
 
 wp.config.log_level = wp.LOG_WARNING
 DTYPES = {np.float32: wp.float32, np.float64: wp.float64}
@@ -42,7 +43,7 @@ def warp_vjp(prog, z, sem, param, seed):
 
 
 def jax_vjp(prog, z, sem, param, seed):
-    ref, vjp = jax.vjp(lambda x: stl.robustness(prog, x, sem, param), jnp.asarray(z))
+    ref, vjp = jax.vjp(lambda x: stl_jax.robustness(prog, x, sem, param), jnp.asarray(z))
     assert ref.dtype == z.dtype
     return np.asarray(ref), np.asarray(vjp(jnp.asarray(seed))[0])
 
@@ -78,10 +79,10 @@ def test_min_equals_lse_jax():
         z = jnp.asarray(rng.standard_normal((6, 9)))
         mask = random_mask(rng, (6, 9))
         seed = jnp.asarray(rng.standard_normal(6))
-        plain = stl.REDUCTIONS["lse_plain"][1]
-        assert np.array_equal(plain(z, 3.0, mask), stl.lse_min(z, 3.0, mask))
+        plain = stl_jax.REDUCTIONS["lse_plain"][1]
+        assert np.array_equal(plain(z, 3.0, mask), stl_jax.lse_min(z, 3.0, mask))
         g1 = jax.grad(lambda x: jnp.sum(seed * plain(x, 3.0, mask)))(z)
-        g2 = jax.grad(lambda x: jnp.sum(seed * stl.lse_min(x, 3.0, mask)))(z)
+        g2 = jax.grad(lambda x: jnp.sum(seed * stl_jax.lse_min(x, 3.0, mask)))(z)
         assert np.array_equal(g1, g2)
 
 
@@ -111,11 +112,11 @@ def test_max_shift_jax():
         z = jnp.asarray(rng.standard_normal((7, 8)))
         mask = random_mask(rng, (7, 8))
         m = mask.sum(-1)
-        d = stl.lse_plain_max(z, 2.5, mask) - stl.lse_max(z, 2.5, mask)
+        d = stl_jax.lse_plain_max(z, 2.5, mask) - stl_jax.lse_max(z, 2.5, mask)
         assert np.max(np.abs(d - np.log(m) / 2.5)) <= 1e-12
         seed = jnp.asarray(rng.standard_normal(7))
-        g1 = jax.grad(lambda x: jnp.sum(seed * stl.lse_plain_max(x, 2.5, mask)))(z)
-        g2 = jax.grad(lambda x: jnp.sum(seed * stl.lse_max(x, 2.5, mask)))(z)
+        g1 = jax.grad(lambda x: jnp.sum(seed * stl_jax.lse_plain_max(x, 2.5, mask)))(z)
+        g2 = jax.grad(lambda x: jnp.sum(seed * stl_jax.lse_max(x, 2.5, mask)))(z)
         assert np.max(np.abs(g1 - g2)) <= 1e-12
         # matched parameters: the shift is eps at every row with m > 1, and 0 at m = 1
         d = methods.lse_plain_max_matched(z, 0.3, mask) - methods.lse_max_matched(z, 0.3, mask)
@@ -191,8 +192,8 @@ def test_until_plain_reports_satisfied():
     assert prog.steps[-1].kind == "max" and prog.steps[-1].count[0] == 51
     beta_out = np.log(51) / EPS
     with jax.enable_x64(True):
-        exact = np.asarray(stl.robustness(prog, z))[0, 0]
-        jx = {s: np.asarray(stl.robustness(prog, z, methods.SEMANTICS[s], EPS))[0, 0]
+        exact = np.asarray(stl_jax.robustness(prog, z))[0, 0]
+        jx = {s: np.asarray(stl_jax.robustness(prog, z, methods.SEMANTICS[s], EPS))[0, 0]
               for s in ("lse", "lse_plain", "sparsemax")}
     wx = {s: robustness_warp(prog, wp.array(z, dtype=wp.float64, device="cpu"), s, matched_param(prog, s, EPS)).numpy()[0, 0]
           for s in ("lse", "lse_plain", "sparsemax")}

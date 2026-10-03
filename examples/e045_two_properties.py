@@ -187,7 +187,7 @@ def theory_main(H, path, prefix):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     w, I, idx = starts(H, path)
     sc, prog, kw = until_program(w, int(I["n_h"]))
@@ -197,7 +197,7 @@ def theory_main(H, path, prefix):
 
     def both(x, hc):
         inst = dict(fixed, human_centres=hc)
-        return W.margins(mx, E.plant, sc, inst, x), W.scores(mx, E.plant, sc, inst, x)
+        return Wm.margins(mx, E.plant, sc, inst, x), Wm.scores(mx, E.plant, sc, inst, x)
     f = jax.jit(jax.vmap(both))
     hc = jnp.asarray(I["hc"][idx], jnp.float64)
     Mg, Zs = (np.asarray(a) for a in f(jnp.asarray(Xs), hc))
@@ -238,8 +238,8 @@ def cpu_main(H, prefix):
     import jax
     import jax.numpy as jnp
 
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
     jax.config.update("jax_enable_x64", True)
     z = np.load(prefix + "_pred.npz")
     w = X.horizon(H)
@@ -250,13 +250,13 @@ def cpu_main(H, prefix):
         raise ValueError("witnesses differ")
     Mg, Zs, viol, vm = z["margins"], z["scores"], z["viol"], z["viol_margin"]
     hold = z["hold"][None] & ~viol & ~vm
-    ex = np.asarray(jax.jit(jax.vmap(lambda y: stl.evaluate(prog, y, "exact")[-1][0]))(jnp.asarray(Mg)))
-    exs = np.asarray(jax.jit(jax.vmap(lambda y: stl.evaluate(prog, y, "exact")[-1][0]))(jnp.asarray(Zs)))
+    ex = np.asarray(jax.jit(jax.vmap(lambda y: stl_jax.evaluate(prog, y, "exact")[-1][0]))(jnp.asarray(Mg)))
+    exs = np.asarray(jax.jit(jax.vmap(lambda y: stl_jax.evaluate(prog, y, "exact")[-1][0]))(jnp.asarray(Zs)))
     rows = []
     for arm, e in settings():  # over the 14 (method, eps) settings
         sem = methods.SEMANTICS[arm]
         par = None if np.isnan(e) else e
-        f = jax.jit(jax.vmap(jax.value_and_grad(lambda y: stl.evaluate(prog, y, sem, par)[-1][0])))
+        f = jax.jit(jax.vmap(jax.value_and_grad(lambda y: stl_jax.evaluate(prog, y, sem, par)[-1][0])))
         v, g = (np.asarray(a) for a in f(jnp.asarray(Zs)))
         s = sums(g, viol, hold)
         s["w_viol_margin"] = sums(g, vm, hold)["w_viol"]
@@ -281,9 +281,9 @@ def gpu_main(out_csv, items, dev="cuda:0", only=None):
     import warp as wp
 
     from examples import e022_regime as R
-    from sparsemax_dstl.stl.warp_backend import Evaluator, matched_param
-    from sparsemax_dstl.warp_plant import Plant
-    from sparsemax_dstl.warp_predicates import Predicates
+    from sparsemax_dstl.warp.evaluator import Evaluator, matched_param
+    from sparsemax_dstl.warp.plant import Plant
+    from sparsemax_dstl.warp.predicates import Predicates
     wp.init()
     S = settings() if only is None else [s_ for s_ in settings() if s_[0] + "/" + str(s_[1]) in only]
     nc = 2 * len(S)  # cotangents: per setting the whole score gradient and its violating part

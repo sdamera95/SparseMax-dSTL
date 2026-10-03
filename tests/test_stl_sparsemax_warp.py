@@ -15,11 +15,12 @@ import numpy as np
 import pytest
 import warp as wp
 
+import twolink
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.stl import twolink
 from sparsemax_dstl.stl.oracle import random_formula
-from sparsemax_dstl.stl.twolink_warp import twolink_scores
-from sparsemax_dstl.stl.warp_backend import evaluate_warp, robustness_warp
+from sparsemax_dstl.warp.evaluator import evaluate_warp, robustness_warp
+from twolink_warp import twolink_scores
 
 wp.config.log_level = wp.LOG_WARNING
 DTYPES = {np.float32: wp.float32, np.float64: wp.float64}
@@ -39,7 +40,7 @@ def compare(prog, z, gamma, seed):
     tape = wp.Tape()
     rho = robustness_warp(prog, s, "sparsemax", gamma, tape=tape)
     tape.backward(grads={rho: wp.array(seed, dtype=dt, device="cpu")})
-    ref, g = pullback(lambda x: stl.robustness(prog, x, "sparsemax", gamma))(jnp.asarray(z), jnp.asarray(seed))
+    ref, g = pullback(lambda x: stl_jax.robustness(prog, x, "sparsemax", gamma))(jnp.asarray(z), jnp.asarray(seed))
     assert ref.dtype == z.dtype
     return close(rho.numpy(), np.asarray(ref), z.dtype) and close(s.grad.numpy(), np.asarray(g), z.dtype)
 
@@ -93,7 +94,7 @@ def test_twolink_chain(dtype):
                 wp.launch(twolink_scores, dim=(B, T), inputs=[Xw], outputs=[scores], device="cpu")
                 rho = robustness_warp(prog, scores, "sparsemax", 0.5, tape=tape)
             tape.backward(grads={rho: wp.array(seed, dtype=dt, device="cpu")})
-            f = lambda X: stl.robustness(prog, stl.score_traces(twolink.PREDICATES, X), "sparsemax", 0.5)
+            f = lambda X: stl_jax.robustness(prog, stl_jax.score_traces(twolink.PREDICATES, X), "sparsemax", 0.5)
             ref, g = pullback(f)(jnp.asarray(X), jnp.asarray(seed))
             assert close(rho.numpy(), np.asarray(ref), dtype)
             assert close(Xw.grad.numpy(), np.asarray(g), dtype)

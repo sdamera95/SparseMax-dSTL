@@ -35,7 +35,7 @@ import numpy as np
 MJX_VERSION = "3.12.0"
 if mujoco.__version__ != MJX_VERSION or version("mujoco-mjx") != MJX_VERSION:
     raise ImportError(
-        "sparsemax_dstl.mjx_implicit relies on private mujoco-mjx " + MJX_VERSION
+        "sparsemax_dstl.jax.mjx_implicit relies on private mujoco-mjx " + MJX_VERSION
         + " internals, but mujoco " + mujoco.__version__ + " and mujoco-mjx "
         + version("mujoco-mjx") + " are installed"
     )

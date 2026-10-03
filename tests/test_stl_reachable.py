@@ -4,12 +4,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.baselines import DGMSR, GILPIN
-from sparsemax_dstl.core_study import methods
-from sparsemax_dstl.stl import (Always, And, Atom, Eventually, Or, Release, Until, compile_formula, oracle,
-                                   robustness)
-from sparsemax_dstl.stl.program import locate, read
+from sparsemax_dstl.jax import methods, read, robustness
+from sparsemax_dstl.jax.baselines import DGMSR, GILPIN
+from sparsemax_dstl.stl import Always, And, Atom, Eventually, Or, Release, Until, compile_formula, oracle
+from sparsemax_dstl.stl.program import locate
 
 SEMANTICS = [("exact", None), ("sparsemax", 0.5), ("lse", 4.0), (methods.SEMANTICS["sparsemax"], 0.2),
              (methods.SEMANTICS["lse"], 0.2), (GILPIN, (5.0, 5.0)), (DGMSR, (0.05, 2.0))]
@@ -75,8 +75,8 @@ def test_random_reads_values_and_derivatives(boundary):
         gather = unpruned_reads(full, reads)
         z = jnp.asarray(rng.normal(size=(T, 3)))
         for sem, param in sems:  # semantics
-            F = lambda z: gather(stl.evaluate(full, z, sem, param))
-            G = lambda z: read(pr, stl.evaluate(pr, z, sem, param))
+            F = lambda z: gather(stl_jax.evaluate(full, z, sem, param))
+            G = lambda z: read(pr, stl_jax.evaluate(pr, z, sem, param))
             if boundary == "clip":
                 np.testing.assert_array_equal(np.asarray(G(z)), np.asarray(F(z)))
                 continue
@@ -91,7 +91,7 @@ def test_clip_empty_windows_keep_padding_rows():
     z = np.random.default_rng(3).normal(size=(6, 3))
     full = compile_formula(f, 6, "clip")
     pr = compile_formula(f, 6, "clip", reads=[(f, [5]), (f.children[0], [5]), (f.children[1], [5], [2])])
-    got = np.asarray(read(pr, stl.evaluate(pr, z)))
+    got = np.asarray(read(pr, stl_jax.evaluate(pr, z)))
     np.testing.assert_array_equal(got, [np.inf, np.inf, np.inf])
     assert pr.steps[pr.nodes[f.children[0].child]].length == 1
     np.testing.assert_array_equal(np.asarray(robustness(full, z))[5], np.inf)
@@ -104,12 +104,12 @@ def test_witness_reads_and_locate():
     t, k = np.array([0, 2, 5]), np.array([1, 3, 2])
     pr = compile_formula(f, T, reads=[(f, t, k)])
     assert f not in pr.nodes and f in pr.inner  # only the inner step is built
-    got = np.asarray(read(pr, stl.evaluate(pr, z)))
+    got = np.asarray(read(pr, stl_jax.evaluate(pr, z)))
     ref = [max(max(z[tt + kk, 1], z[tt + kk, 2]), max(z[tt:tt + kk + 1, 0])) for tt, kk in zip(t, k)]  # oracle
     np.testing.assert_array_equal(got, ref)
     full = compile_formula(f, T)
     s, rows = locate(full, f, t, k)
-    np.testing.assert_array_equal(np.asarray(stl.evaluate(full, z)[s])[rows], ref)
+    np.testing.assert_array_equal(np.asarray(stl_jax.evaluate(full, z)[s])[rows], ref)
 
 
 def test_reads_are_checked():

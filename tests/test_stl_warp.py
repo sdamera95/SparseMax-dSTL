@@ -24,11 +24,12 @@ import numpy as np
 import pytest
 import warp as wp
 
+import twolink
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.stl import twolink
 from sparsemax_dstl.stl.oracle import random_formula
-from sparsemax_dstl.stl.twolink_warp import twolink_scores
-from sparsemax_dstl.stl.warp_backend import evaluate_warp, robustness_warp
+from sparsemax_dstl.warp.evaluator import evaluate_warp, robustness_warp
+from twolink_warp import twolink_scores
 
 wp.config.log_level = wp.LOG_WARNING
 DTYPES = {np.float32: wp.float32, np.float64: wp.float64}
@@ -45,7 +46,7 @@ def warp_vjp(prog, z, sem, beta, seed):
 
 
 def jax_vjp(prog, z, sem, beta, seed):
-    ref, vjp = jax.vjp(lambda x: stl.robustness(prog, x, sem, beta), jnp.asarray(z))
+    ref, vjp = jax.vjp(lambda x: stl_jax.robustness(prog, x, sem, beta), jnp.asarray(z))
     assert ref.dtype == z.dtype
     return np.asarray(ref), np.asarray(vjp(jnp.asarray(seed))[0])
 
@@ -97,7 +98,7 @@ def test_clip_exact(dtype):
     with x64(dtype):
         for prog in random_programs(3, 16, "clip"):
             z = rng.standard_normal((3, prog.T, 3)).astype(dtype)
-            j = np.asarray(stl.robustness(prog, jnp.asarray(z)))
+            j = np.asarray(stl_jax.robustness(prog, jnp.asarray(z)))
             seed = np.where(np.isfinite(j), rng.standard_normal(j.shape), 0.0).astype(dtype)
             w, gw = warp_vjp(prog, z, "exact", None, seed)
             j, gj = jax_vjp(prog, z, "exact", None, seed)
@@ -155,7 +156,7 @@ def test_twolink_chain(dtype, sem, beta):
             tape.backward(grads={rho: wp.array(seed, dtype=dt, device="cpu")})
 
             def f(X):
-                return stl.robustness(prog, stl.score_traces(twolink.PREDICATES, X), sem, beta)
+                return stl_jax.robustness(prog, stl_jax.score_traces(twolink.PREDICATES, X), sem, beta)
 
             j, vjp = jax.vjp(f, jnp.asarray(X))
             gj = np.asarray(vjp(jnp.asarray(seed))[0])

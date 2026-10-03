@@ -20,7 +20,8 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-from sparsemax_dstl.stl import Atom, Until, budget, compile_formula  # noqa: E402
+from sparsemax_dstl.jax import budget  # noqa: E402
+from sparsemax_dstl.stl import Atom, Until, compile_formula  # noqa: E402
 from sparsemax_dstl.tasks import planar as P0  # noqa: E402
 from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle as O  # noqa: E402

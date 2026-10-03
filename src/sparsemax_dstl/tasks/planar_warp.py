@@ -23,7 +23,7 @@ import numpy as np
 import warp as wp
 
 from ..stl import compile_formula
-from ..stl.warp_backend import Evaluator, matched_param
+from ..warp.evaluator import Evaluator, matched_param
 from . import planar_disk as D
 
 NPRED = 8

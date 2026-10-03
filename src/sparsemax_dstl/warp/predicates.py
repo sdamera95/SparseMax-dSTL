@@ -38,7 +38,7 @@ import mujoco
 import numpy as np
 import warp as wp
 
-from .tasks import workspace as Wk
+from ..tasks import workspace as Wk
 
 MAX_BODIES = 16  # the unrolled chain loop covers bodies 1..15 (Warp's max_unroll is 16)
 

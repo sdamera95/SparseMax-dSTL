@@ -50,7 +50,7 @@ A specification is written over predicates, which are referred to by their index
 import numpy as np
 import warp as wp
 from sparsemax_dstl.stl import Atom, Until, compile_formula
-from sparsemax_dstl.stl.warp_backend import Evaluator
+from sparsemax_dstl.warp import Evaluator
 
 # stay out of the zone (predicate 0) until the pick (predicate 1), over 41 samples
 program = compile_formula(Until((0, 40), Atom(0), Atom(1)), T=41)
@@ -80,7 +80,8 @@ An `Evaluator` is built for one specification, measure, parameter, batch size an
 ```python
 import jax
 import jax.numpy as jnp
-from sparsemax_dstl.stl import Atom, Until, compile_formula, robustness
+from sparsemax_dstl.jax import robustness
+from sparsemax_dstl.stl import Atom, Until, compile_formula
 
 program = compile_formula(Until((0, 40), Atom(0), Atom(1)), T=41)
 
@@ -115,10 +116,10 @@ The first satisfying update is the same on both machines, and their exact robust
 | Path | Content |
 |---|---|
 | `src/sparsemax_dstl/stl/formula.py`, `program.py` | specifications and their compilation into the evaluation graph |
-| `src/sparsemax_dstl/stl/warp_backend.py` | the Warp evaluator and its adjoints |
-| `src/sparsemax_dstl/stl/semantics.py`, `src/sparsemax_dstl/operators.py` | the JAX evaluator and the SparseMax operators |
-| `src/sparsemax_dstl/warp_plant.py`, `warp_predicates.py` | the MuJoCo Warp rollout with its reverse-mode gradient, and predicates as Warp kernels |
-| `src/sparsemax_dstl/constrained_warp.py`, `constrained_conj.py` | the first-order augmented Lagrangian solver under single shooting |
+| `src/sparsemax_dstl/warp/evaluator.py` | the Warp evaluator and its adjoints |
+| `src/sparsemax_dstl/jax/evaluator.py`, `operators.py` | the JAX evaluator and the SparseMax operators |
+| `src/sparsemax_dstl/warp/plant.py`, `predicates.py` | the MuJoCo Warp rollout with its reverse-mode gradient, and predicates as Warp kernels |
+| `src/sparsemax_dstl/warp/solver.py`, `solver_conjuncts.py` | the first-order augmented Lagrangian solver under single shooting |
 | `src/sparsemax_dstl/tasks/` | the planar unicycle and the manipulator beside a person |
 | `examples/` | the scripts that produce the numbers of the paper's tables |
 
@@ -141,7 +142,7 @@ JAX_PLATFORMS=cpu uv run pytest -q --ignore=tests/test_warp_predicates.py
 JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 ```
 
-396 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
+400 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
 
 ## References
 

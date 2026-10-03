@@ -3,9 +3,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import twolink
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.stl import (Always, And, Atom, Eventually, Implies, Not, Or, Release, Until,
-                                   compile_formula, oracle, robustness, twolink)
+from sparsemax_dstl.jax import robustness
+from sparsemax_dstl.stl import Always, And, Atom, Eventually, Implies, Not, Or, Release, Until, compile_formula, oracle
 
 # Scores are drawn in float32 so that exact semantics, which only select and
 # negate inputs, must agree with the float64 oracle bit for bit in both precisions.
@@ -93,16 +95,16 @@ def test_lse_is_lower_bound_within_budget(beta):
         z = jnp.asarray(scores(rng, T), float)  # float64 under JAX_ENABLE_X64
         prog = compile_formula(f, T)
         gap = np.asarray(robustness(prog, z), np.float64) - np.asarray(robustness(prog, z, "lse", beta), np.float64)
-        B = stl.budget(prog, "lse", beta)
+        B = stl_jax.budget(prog, "lse", beta)
         assert np.all(gap >= -tol) and np.all(gap <= B + tol)
 
 
 def test_budget_closed_forms():
     beta = 4.0
-    b = stl.budget(compile_formula(Always((2, 6), Atom(0)), 12), "lse", beta)
+    b = stl_jax.budget(compile_formula(Always((2, 6), Atom(0)), 12), "lse", beta)
     np.testing.assert_allclose(b, np.log(5) / beta)
     # Until [1, 3]: outer max over 3 witnesses plus the widest inner min, 3 + 2 values.
-    b = stl.budget(compile_formula(Until((1, 3), Atom(0), Eventually((0, 1), Atom(1))), 12), "lse", beta)
+    b = stl_jax.budget(compile_formula(Until((1, 3), Atom(0), Eventually((0, 1), Atom(1))), 12), "lse", beta)
     np.testing.assert_allclose(b, (np.log(3) + np.log(5) + np.log(2)) / beta)
 
 
@@ -133,27 +135,27 @@ def test_shared_subformulas_share_steps():
 
 def test_predicate_dependencies():
     X = jax.random.uniform(jax.random.key(3), (64, 2), minval=-3, maxval=3)
-    assert float(stl.undeclared_gradient(twolink.PREDICATES, X)) == 0.0
-    np.testing.assert_array_equal(stl.dependency_matrix(twolink.PREDICATES, 2), [[1, 1], [1, 1], [0, 1]])
+    assert float(stl_jax.undeclared_gradient(twolink.PREDICATES, X)) == 0.0
+    np.testing.assert_array_equal(stl_jax.dependency_matrix(twolink.PREDICATES, 2), [[1, 1], [1, 1], [0, 1]])
     g, grad, hess = twolink.analytic(np.asarray(X))
-    Z = stl.score_traces(twolink.PREDICATES, X)
+    Z = stl_jax.score_traces(twolink.PREDICATES, X)
     np.testing.assert_allclose(Z, g, rtol=1e-5, atol=1e-5)
 
 
 def test_pluggable_reduction_pairs():
     # Any pair reduce(z, param, mask) plugs in; lower_max and lower_min already
     # have that signature. The built-in names are the same pairs.
-    from sparsemax_dstl.operators import lower_max, lower_min
+    from sparsemax_dstl.jax.operators import lower_max, lower_min
     rng = np.random.default_rng(9)
     f = Or(Until((0, 3), Atom(0), Atom(1)), Always((1, 2), Implies(Atom(2), Atom(0))))
     z = jnp.asarray(scores(rng, 10), float)
     prog = compile_formula(f, 10)
-    np.testing.assert_array_equal(robustness(prog, z, (stl.exact_max, stl.exact_min)), robustness(prog, z))
-    np.testing.assert_array_equal(robustness(prog, z, (stl.lse_max, stl.lse_min), 3.0),
+    np.testing.assert_array_equal(robustness(prog, z, (stl_jax.exact_max, stl_jax.exact_min)), robustness(prog, z))
+    np.testing.assert_array_equal(robustness(prog, z, (stl_jax.lse_max, stl_jax.lse_min), 3.0),
                                   robustness(prog, z, "lse", 3.0))
     gamma = 0.5
     sm = robustness(prog, z, (lower_max, lower_min), gamma)
-    B = stl.budget(prog, lambda m, g: g / 2 * (1 - 1 / m), gamma)
+    B = stl_jax.budget(prog, lambda m, g: g / 2 * (1 - 1 / m), gamma)
     gap = np.asarray(robustness(prog, z), np.float64) - np.asarray(sm, np.float64)
     tol = 1e-12 if jax.config.jax_enable_x64 else 2e-5
     assert np.all(gap >= -tol) and np.all(gap <= B + tol)

@@ -82,13 +82,13 @@ def zone_pick(H, X):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     w = horizon(H)
     sc, I = D.scenario(w), D.instance(w, "out")
     with jax.enable_x64(True):
         mx = mjx.put_model(E.plant.model, impl="jax")
         inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-        M = np.asarray(jax.jit(jax.vmap(lambda x: W.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X, jnp.float64)))
+        M = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X, jnp.float64)))
     return M[..., 2], M[..., 0]
 
 
@@ -186,9 +186,9 @@ def grads_main(H, start_dir, out_dir, arms, eps_, traces=True):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     w = horizon(H)
     z = np.load(start_dir + "/starts.npz")
@@ -197,8 +197,8 @@ def grads_main(H, start_dir, out_dir, arms, eps_, traces=True):
     sc, I = D.scenario(w), D.instance(w, "out")
     inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
     mx = mjx.put_model(E.plant.model, impl="jax")
-    Mg = np.asarray(jax.jit(jax.vmap(lambda x: W.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
-    Zs = np.asarray(jax.jit(jax.vmap(lambda x: W.scores(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
+    Mg = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
+    Zs = np.asarray(jax.jit(jax.vmap(lambda x: Wm.scores(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
     if traces:
         np.savez(out_dir + "/traces" + str(H) + ".npz", X64=X, margins=Mg, scores=Zs, depth=z["depth"][sel], start=z["start"][sel], wait=w, horizon=H,
                  plan=sel, start_file=start_dir + "/starts.npz", columns="atoms in tasks.workspace.layout order: 0 pick, 1 handover, 2 zone, then speed, sep, slow")
@@ -207,7 +207,7 @@ def grads_main(H, start_dir, out_dir, arms, eps_, traces=True):
     r_idx = np.asarray(root.index[0, :root.count[0]])
 
     def vals(Z, sem, e):
-        v = stl.evaluate(prog, Z, sem, e)
+        v = stl_jax.evaluate(prog, Z, sem, e)
         return v[-1][0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx][2]
 
     B, T, P = Zs.shape
@@ -383,7 +383,7 @@ def until_batch(zone_s, pick_s, zone_m, pick_m, entry, eps, w, hold_from, batch=
     import jax
     import jax.numpy as jnp
 
-    from sparsemax_dstl.operators import sparsemax_weights
+    from sparsemax_dstl.jax.operators import sparsemax_weights
     T = zone_s.shape[1]
     wit = np.arange(int(round(w / D.HS)), int(round((w + 1) / D.HS)) + 1)
     m = wit + 2
@@ -436,7 +436,7 @@ def path_main(H, instance, run_path, out, iterates, runs="all"):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     w = horizon(H)
     zi, z = np.load(instance), np.load(run_path)
     sel = np.arange(len(z["run_method"])) if runs == "all" else np.asarray([int(i) for i in runs.split(",")])
@@ -451,7 +451,7 @@ def path_main(H, instance, run_path, out, iterates, runs="all"):
     with jax.enable_x64(True):
         mx = mjx.put_model(E.plant.model, impl="jax")
         inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-        f = jax.jit(lambda x: (W.margins(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])], W.scores(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])]))
+        f = jax.jit(lambda x: (Wm.margins(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])], Wm.scores(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])]))
         Mg, Zs = (np.asarray(a) for a in jax.lax.map(f, jnp.asarray(X), batch_size=8))
     t = np.arange(X.shape[1]) * D.HS
     entry = (Mg[:, :, 1] < 0) & (t[None] <= D.T_HOLD + 1e-9)
@@ -513,10 +513,11 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import panda as Pd
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import panda_mjx as Pm
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     w = horizon(H)
     zi, z = np.load(instance), np.load(run_path)
@@ -540,11 +541,11 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
     sem = methods.SEMANTICS[arm]
 
     def vals(Zt, e):
-        v = stl.evaluate(prog, Zt, sem, e)
+        v = stl_jax.evaluate(prog, Zt, sem, e)
         return v[-1][0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx][2]
 
-    margins = lambda x: W.margins(mx, E.plant, sc, inst, x)  # noqa: E731
-    scores = lambda x: W.scores(mx, E.plant, sc, inst, x)  # noqa: E731
+    margins = lambda x: Wm.margins(mx, E.plant, sc, inst, x)  # noqa: E731
+    scores = lambda x: Wm.scores(mx, E.plant, sc, inst, x)  # noqa: E731
     umax = jnp.asarray(Pd.torque_limit(), jnp.float64)
     n_sub = Pd.substeps(D.H_CTRL)
     n_h = len(I["human_radii"])
@@ -557,7 +558,7 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
         g_root = jax.grad(lambda Y: vals(Y, e)[0])(Zt)
         return margins(x), g_until, g_root
 
-    f_h = jax.checkpoint(Pd.interval_map(mx, n_sub))  # tasks.panda.rollout with each interval recomputed in the backward (memory)
+    f_h = jax.checkpoint(Pm.interval_map(mx, n_sub))  # tasks.panda.rollout with each interval recomputed in the backward (memory)
 
     def body(x, ui):
         y = f_h(x, ui)

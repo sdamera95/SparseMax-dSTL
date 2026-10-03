@@ -154,6 +154,7 @@ def starts_main(out):
     from examples import e022_regime as E
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     t_start = time.perf_counter()
     plant = E.plant
     m = plant.model
@@ -162,9 +163,9 @@ def starts_main(out):
     with jax.enable_x64(True):  # inverse kinematics and the replay's margins in float64, as tasks.workspace._instances
         mx64 = mjx.put_model(m, impl="jax")
         lo, hi = jnp.asarray(m.jnt_range[:, 0] + W.JOINT_MARGIN), jnp.asarray(m.jnt_range[:, 1] - W.JOINT_MARGIN)
-        ik_j = jax.jit(lambda tg, q: W.ik(mx64, plant, sc.robot_spacing, tg, q, lo, hi))
+        ik_j = jax.jit(lambda tg, q: Wm.ik(mx64, plant, sc.robot_spacing, tg, q, lo, hi))
         inst64 = {k: jnp.asarray(inst0[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-        margins_j = jax.jit(jax.vmap(lambda X: W.margins(mx64, plant, sc, inst64, X)))
+        margins_j = jax.jit(jax.vmap(lambda X: Wm.margins(mx64, plant, sc, inst64, X)))
 
     def ik(tg, q):
         with jax.enable_x64(True):
@@ -239,7 +240,7 @@ def until_rows(zone_s, pick_s, zone_m, pick_m, w, eps, entry, hold_from):
     import jax
     import jax.numpy as jnp
 
-    from sparsemax_dstl.operators import sparsemax_weights
+    from sparsemax_dstl.jax.operators import sparsemax_weights
     T = len(zone_s)
     k0, k1 = int(round(w / HS)), int(round((w + 1) / HS))
     wit = np.arange(k0, k1 + 1)  # witness samples
@@ -294,9 +295,9 @@ def regime_main(start_dir, out):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     z = np.load(start_dir + "/starts.npz")
     plant = E.plant
@@ -313,14 +314,14 @@ def regime_main(start_dir, out):
             root = prog.steps[prog.root]
             r_idx = np.asarray(root.index[0, :root.count[0]])
             sel = np.nonzero(np.isclose(z["wait"], w))[0]
-            Mg = np.asarray(jax.vmap(lambda x: W.margins(mx, plant, sc, inst, x))(jnp.asarray(X[sel])))
-            Zs = np.asarray(jax.vmap(lambda x: W.scores(mx, plant, sc, inst, x))(jnp.asarray(X[sel])))
+            Mg = np.asarray(jax.vmap(lambda x: Wm.margins(mx, plant, sc, inst, x))(jnp.asarray(X[sel])))
+            Zs = np.asarray(jax.vmap(lambda x: Wm.scores(mx, plant, sc, inst, x))(jnp.asarray(X[sel])))
             ev = {}
             for name in ("exact",) + ARMS:  # over arms
                 for eps in ((None,) if name == "exact" else EPS):  # over eps
                     sem = "exact" if name == "exact" else methods.SEMANTICS[name]
                     f = jax.jit(jax.vmap(lambda M_, e=eps, s=sem: (lambda v: (v[-1][:, 0] if v[-1].ndim > 1 else v[-1][0],
-                                                                         jnp.concatenate([v[j] for j in root.sources], -1)[..., r_idx]))(stl.evaluate(prog, M_, s, e))))
+                                                                         jnp.concatenate([v[j] for j in root.sources], -1)[..., r_idx]))(stl_jax.evaluate(prog, M_, s, e))))
                     ev[(name, eps)] = [np.asarray(x) for x in f(jnp.asarray(Mg if name == "exact" else Zs))]
             for i, s_ in enumerate(sel):  # over the starts of this wait (eight; table rows)
                 entry = (Mg[i, :, 2] < 0) & (t <= T_HOLD)
@@ -395,7 +396,7 @@ def load(path, runs="all"):
 def build(I, device="cuda:0"):
     """Programs per wait, Chain and Referee for the runs of I."""
     from examples import e022_regime as R
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
     n = len(I["x0"])
     progs = {w: R.core_program(scenario(w), I["n_h"]) for w in sorted({g[4] for g in I["groups"]})}
     sc = scenario(min(progs))
@@ -410,7 +411,7 @@ def build(I, device="cuda:0"):
 def run_main(path, iterations, out, resume, runs, stop=False):
     import warp as wp
 
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
     t0 = time.perf_counter()
     I = load(path, runs)
     progs, chain, referee = build(I)

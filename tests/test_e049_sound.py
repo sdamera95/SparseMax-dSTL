@@ -15,7 +15,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from sparsemax_dstl.stl import Atom, Until, budget, compile_formula
+from sparsemax_dstl.jax import budget
+from sparsemax_dstl.stl import Atom, Until, compile_formula
 from sparsemax_dstl.tasks import planar as P0
 from sparsemax_dstl.tasks import planar_disk as D
 from sparsemax_dstl.tasks import planar_oracle_sound as OS

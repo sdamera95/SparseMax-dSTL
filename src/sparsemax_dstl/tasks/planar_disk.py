@@ -23,8 +23,8 @@ minus eps and the exact extremum, so the value is a lower bound of the exact rob
 import jax.numpy as jnp
 import numpy as np
 
-from ..stl import Always, And, Atom, Eventually, Not, Until, compile_formula, evaluate, lse_max, lse_min
-from ..stl.program import read
+from ..jax.evaluator import evaluate, lse_max, lse_min, read
+from ..stl import Always, And, Atom, Eventually, Not, Until, compile_formula
 from . import planar as P0
 
 H = P0.H

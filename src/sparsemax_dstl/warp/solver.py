@@ -48,9 +48,9 @@ import numpy as np
 import warp as wp
 from mujoco import rollout as mj_rollout
 
-from .stl.warp_backend import Evaluator, evaluate_warp, matched_param
-from .warp_plant import Plant
-from .warp_predicates import Predicates
+from .evaluator import Evaluator, evaluate_warp, matched_param
+from .plant import Plant
+from .predicates import Predicates
 
 ARMIJO_C = 1e-4
 TRIALS = 6
@@ -230,7 +230,7 @@ class Referee:
     if given, evaluates runs a..b-1 with that program (E034: one per wait; the same root layout)."""
 
     def __init__(self, spec_plant, sc, prog, x0, pick, handover, hc, hr, device="cuda:0", mjm=None, n_sub=10, times=None, blocks=None):
-        from .tasks import panda
+        from ..tasks import panda
         self.mjm = panda.model() if mjm is None else mjm
         self.nq, self.n_sub = self.mjm.nq, n_sub
         if mujoco.mj_stateSize(self.mjm, mujoco.mjtState.mjSTATE_FULLPHYSICS) != 1 + 2 * self.nq:

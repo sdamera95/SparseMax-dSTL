@@ -28,7 +28,8 @@ import warp as wp
 from mujoco import mjx
 
 from sparsemax_dstl.tasks import workspace as W
-from sparsemax_dstl.warp_predicates import Predicates
+from sparsemax_dstl.tasks import workspace_mjx as Wm
+from sparsemax_dstl.warp.predicates import Predicates
 
 wp.config.log_level = wp.LOG_WARNING
 DTYPES = {np.float32: wp.float32, np.float64: wp.float64}
@@ -49,7 +50,7 @@ def case(mx, plant, sc, rng):
     hc = rng.uniform([-0.2, -0.5, 0.0], [0.8, 0.5, 1.0], (B, T, NH, 3))
     hr = rng.uniform(0.04, 0.1, NH)
     goals = rng.uniform([0.2, -0.5, 0.1], [0.7, 0.5, 0.6], (2, B, 3))
-    p, C = jax.vmap(lambda q: W.points(mx, plant, sc.robot_spacing, q))(jnp.asarray(q[1, 1:3]))
+    p, C = jax.vmap(lambda q: Wm.points(mx, plant, sc.robot_spacing, q))(jnp.asarray(q[1, 1:3]))
     goals[0, 1] = np.asarray(p[0])
     hc[1, 2, 0] = np.asarray(C[1, 4])
     return np.concatenate([q, qd], -1), hc, hr, goals
@@ -64,7 +65,7 @@ def test_atoms_and_tape_gradients(dtype):
         X, hc, hr, goals = (np.asarray(a, dtype) for a in case(mx, plant, sc, rng))
 
         def ref(X, hc, pick, hand):
-            return W.scores(mx, plant, sc, {"pick": pick, "handover": hand, "human_centres": hc, "human_radii": jnp.asarray(hr)}, X)
+            return Wm.scores(mx, plant, sc, {"pick": pick, "handover": hand, "human_centres": hc, "human_radii": jnp.asarray(hr)}, X)
 
         Zr, pull = jax.vjp(lambda X: jax.vmap(ref)(X, jnp.asarray(hc), jnp.asarray(goals[0]), jnp.asarray(goals[1])), jnp.asarray(X))
         G = rng.standard_normal(Zr.shape).astype(dtype)

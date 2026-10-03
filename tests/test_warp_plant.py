@@ -21,7 +21,7 @@ def _start(n, T, seed=0):
 
 @pytest.fixture(scope="module")
 def WP():
-    from sparsemax_dstl import warp_plant
+    from sparsemax_dstl.warp import plant as warp_plant
     return warp_plant
 
 
@@ -98,6 +98,8 @@ def test_against_mjx_implicit(WP):
     import jax
     import jax.numpy as jnp
     from mujoco import mjx
+
+    from sparsemax_dstl.tasks import panda_mjx as Pm
     x0, V = _start(2, 1, seed=3)
     pl = WP.Plant(28, 1)
     pl.rollout(np.repeat(x0, 14, 0), np.repeat(V, 14, 0))
@@ -107,7 +109,7 @@ def test_against_mjx_implicit(WP):
     um = P.torque_limit()
     with jax.enable_x64(True), jax.default_device(jax.devices("cpu")[0]):
         mx = mjx.put_model(P.model(), impl="jax")
-        f = P.interval_map(mx, 10)
+        f = Pm.interval_map(mx, 10)
 
         def rows(x, u):
             _, pull = jax.vjp(f, x, u)

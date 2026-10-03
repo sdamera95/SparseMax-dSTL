@@ -3,9 +3,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import twolink
 from sparsemax_dstl import stl
-from sparsemax_dstl.stl import (Always, And, Atom, Eventually, Or, Release, Until, compile_formula, oracle,
-                                   robustness, score_traces, twolink)
+from sparsemax_dstl.jax import robustness, score_traces
+from sparsemax_dstl.stl import Always, And, Atom, Eventually, Or, Release, Until, compile_formula, oracle
 
 X64 = jax.config.jax_enable_x64
 

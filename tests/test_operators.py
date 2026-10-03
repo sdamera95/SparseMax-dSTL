@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
-from sparsemax_dstl.operators import lower_max, lower_min, sparsemax_weights
+from sparsemax_dstl.jax.operators import lower_max, lower_min, sparsemax_weights
 
 
 def test_batched_masked_bands_and_gradients():

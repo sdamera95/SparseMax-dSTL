@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from examples import e045_two_properties as E
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.core_study import methods
+from sparsemax_dstl.jax import methods
 
 jax.config.update("jax_enable_x64", True)
 
@@ -28,7 +29,7 @@ def signal(depths, gap):
 def ad(Z, arm, eps):
     prog = stl.compile_formula(stl.Until((A, B), stl.Atom(2), stl.Atom(0)), T)
     sem = methods.SEMANTICS[arm]
-    f = jax.vmap(jax.value_and_grad(lambda y: stl.evaluate(prog, y, sem, eps)[-1][0]))
+    f = jax.vmap(jax.value_and_grad(lambda y: stl_jax.evaluate(prog, y, sem, eps)[-1][0]))
     v, g = f(jnp.asarray(Z))
     return np.asarray(v), np.asarray(g)
 

@@ -298,7 +298,7 @@ class Plant:
     """
 
     def __init__(self, nworld, max_intervals, mjm=None, n_sub=10, umax=None, graph=True, device="cuda:0"):
-        from .tasks import panda
+        from ..tasks import panda
         enable()
         self.mjm = panda.model() if mjm is None else mjm
         if self.mjm.nq != self.mjm.nv:

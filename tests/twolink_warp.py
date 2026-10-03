@@ -8,7 +8,7 @@ from typing import Any
 
 import warp as wp
 
-from .twolink import L1, L2, OBSTACLE, OBSTACLE_R, Q_MAX, TARGET, TARGET_R
+from twolink import L1, L2, OBSTACLE, OBSTACLE_R, Q_MAX, TARGET, TARGET_R
 
 TX, TY = TARGET
 OX, OY = OBSTACLE

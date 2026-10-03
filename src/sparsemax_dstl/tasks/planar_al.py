@@ -27,8 +27,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..stl import compile_formula, evaluate
-from ..stl.program import read
+from ..jax.evaluator import evaluate, read
+from ..stl import compile_formula
 from . import planar as P0
 from . import planar_disk as D
 

@@ -16,8 +16,8 @@ analytic reference for automatic differentiation.
 import jax.numpy as jnp
 import numpy as np
 
-from .oracle import analytic_derivatives
-from .predicates import Predicate
+from sparsemax_dstl.jax.predicates import Predicate
+from sparsemax_dstl.stl.oracle import analytic_derivatives
 
 L1, L2 = 1.0, 0.8
 TARGET, TARGET_R = (1.2, 0.8), 0.5

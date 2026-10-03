@@ -76,7 +76,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from ..operators import lower_max, lower_min
+from .operators import lower_max, lower_min
 
 
 def exact_max(z, param=None, mask=None):
@@ -271,3 +271,12 @@ def budget(program, semantics, param=None):
         child = np.max(np.where(valid, src[step.index], 0.0), axis=-1)
         out.append(np.asarray(error(step.count, param), np.float64) + child)
     return out[-1]
+
+
+def read(program, values):
+    """The values of a pruned program's reads, concatenated in read order along the last axis.
+
+    values is the list evaluate() returns (one array per step, batch axes first)."""
+    if program.outputs is None:
+        raise ValueError("read() needs a program compiled with reads")
+    return jnp.concatenate([values[s][..., rows] for s, rows in program.outputs], -1)  # reads

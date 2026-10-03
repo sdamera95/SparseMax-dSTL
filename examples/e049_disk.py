@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.patches import Circle  # noqa: E402
 
-from sparsemax_dstl.operators import lower_max, lower_min  # noqa: E402
+from sparsemax_dstl.jax.operators import lower_max, lower_min  # noqa: E402
 from sparsemax_dstl.stl import Atom, Until  # noqa: E402
 from sparsemax_dstl.tasks import planar as P0  # noqa: E402
 from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402

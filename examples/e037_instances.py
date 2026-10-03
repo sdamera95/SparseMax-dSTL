@@ -135,9 +135,10 @@ def starts_main(out):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
+    from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     t_start = time.perf_counter()
     plant = E.plant
     m = plant.model
@@ -150,8 +151,8 @@ def starts_main(out):
     with jax.enable_x64(True):  # inverse kinematics, the replay's margins and the exact conjuncts in float64, as E034's starts
         mx64 = mjx.put_model(m, impl="jax")
         hum = {k: jnp.asarray(person[k]) for k in ("human_centres", "human_radii")}
-        ik_j = jax.jit(lambda tg, q: W.ik(mx64, plant, sc.robot_spacing, tg, q, jnp.asarray(lo), jnp.asarray(hi)))
-        margins_j = jax.jit(jax.vmap(lambda X, p, hd: W.margins(mx64, plant, sc, {"pick": p, "handover": hd, **hum}, X)))
+        ik_j = jax.jit(lambda tg, q: Wm.ik(mx64, plant, sc.robot_spacing, tg, q, jnp.asarray(lo), jnp.asarray(hi)))
+        margins_j = jax.jit(jax.vmap(lambda X, p, hd: Wm.margins(mx64, plant, sc, {"pick": p, "handover": hd, **hum}, X)))
 
     def ik(tg, q):
         with jax.enable_x64(True):
@@ -211,7 +212,7 @@ def starts_main(out):
         r_idx = np.asarray(root.index[0, :root.count[0]])
 
         def children(M_, prog=prog, root=root, r_idx=r_idx):
-            v = stl.evaluate(prog, M_, "exact")
+            v = stl_jax.evaluate(prog, M_, "exact")
             return jnp.concatenate([v[s] for s in root.sources], -1)[..., r_idx]
         sel = Wv == j
         with jax.enable_x64(True):
@@ -270,7 +271,7 @@ def until_batch(zone_s, pick_s, zone_m, pick_m, w, eps, entry, hold_from):
     import jax
     import jax.numpy as jnp
 
-    from sparsemax_dstl.operators import sparsemax_weights
+    from sparsemax_dstl.jax.operators import sparsemax_weights
     B, T = zone_s.shape
     k0, k1 = int(round(w / U.HS)), int(round((w + 1) / U.HS))
     wit = np.arange(k0, k1 + 1)
@@ -329,9 +330,9 @@ def regime_main(start_dir, out):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
@@ -350,14 +351,14 @@ def regime_main(start_dir, out):
         r_idx = np.asarray(root.index[0, :root.count[0]])
         sel = np.nonzero(np.isclose(z["wait"], w))[0]
         args = (jnp.asarray(X[sel]), jnp.asarray(z["pick"][sel]), jnp.asarray(z["handover"][sel]))
-        Mg = np.asarray(jax.vmap(lambda x, p, hd: W.margins(mx, plant, sc, inst(p, hd), x))(*args))
-        Zs = np.asarray(jax.vmap(lambda x, p, hd: W.scores(mx, plant, sc, inst(p, hd), x))(*args))
+        Mg = np.asarray(jax.vmap(lambda x, p, hd: Wm.margins(mx, plant, sc, inst(p, hd), x))(*args))
+        Zs = np.asarray(jax.vmap(lambda x, p, hd: Wm.scores(mx, plant, sc, inst(p, hd), x))(*args))
         ev = {}
         for name in ("exact",) + U.ARMS:  # over arms
             for eps in ((None,) if name == "exact" else U.EPS):  # over eps
                 sem = "exact" if name == "exact" else methods.SEMANTICS[name]
                 f = jax.jit(jax.vmap(lambda M_, e=eps, s=sem: (lambda v: (v[-1][:, 0] if v[-1].ndim > 1 else v[-1][0],
-                                                                     jnp.concatenate([v[j] for j in root.sources], -1)[..., r_idx]))(stl.evaluate(prog, M_, s, e))))
+                                                                     jnp.concatenate([v[j] for j in root.sources], -1)[..., r_idx]))(stl_jax.evaluate(prog, M_, s, e))))
                 ev[(name, eps)] = [np.asarray(x) for x in f(jnp.asarray(Mg if name == "exact" else Zs))]
         entry = (Mg[:, :, 2] < 0) & (t[None] <= U.T_HOLD + 1e-9)
         ex_root, ex_conj = ev[("exact", None)]
@@ -468,7 +469,7 @@ def load(path, runs="all"):
 def run_main(path, iterations, out, runs="all"):
     import warp as wp
 
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
     t0 = time.perf_counter()
     I = load(path, runs)
     progs, chain, referee = U.build(I)

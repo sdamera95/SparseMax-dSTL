@@ -32,10 +32,11 @@ import numpy as np
 import pytest
 import warp as wp
 
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.core_study import methods
-from sparsemax_dstl.stl import semantics
-from sparsemax_dstl.stl.warp_backend import matched_param, robustness_warp
+from sparsemax_dstl.jax import evaluator as semantics
+from sparsemax_dstl.jax import methods
+from sparsemax_dstl.warp.evaluator import matched_param, robustness_warp
 
 wp.config.log_level = wp.LOG_WARNING
 ARMS = ("gm_pm01", "gm_pm10", "gm_exp")
@@ -416,8 +417,8 @@ def test_sign_equivalence(name, arm, scale):
     z = scale * rng.standard_normal((256, prog.T, 3))
     assert np.all(z != 0)
     with jax.enable_x64(True):
-        rho = np.asarray(stl.robustness(prog, z))
-        eta = np.asarray(stl.robustness(prog, z, methods.SEMANTICS[arm], EPS))
+        rho = np.asarray(stl_jax.robustness(prog, z))
+        eta = np.asarray(stl_jax.robustness(prog, z, methods.SEMANTICS[arm], EPS))
     assert eta.shape == rho.shape and np.all(np.isfinite(eta))
     assert np.all(rho != 0) and same_sign(eta, rho)
     assert np.any(rho > 0) and np.any(rho < 0)
@@ -433,8 +434,8 @@ def test_formula_against_oracle(name, arm):
     prog = stl.compile_formula(f, stl.horizon(f) + 3, boundary="strict")
     z = np.random.default_rng(7).standard_normal((2, prog.T, 3))
     with jax.enable_x64(True):
-        eta = np.asarray(stl.robustness(prog, z, methods.SEMANTICS[arm], EPS))
-        fixed = np.asarray(stl.robustness(prog, z, arm, 10.0))  # REDUCTIONS by name, fixed beta
+        eta = np.asarray(stl_jax.robustness(prog, z, methods.SEMANTICS[arm], EPS))
+        fixed = np.asarray(stl_jax.robustness(prog, z, arm, 10.0))  # REDUCTIONS by name, fixed beta
     ref = oracle_trace(f, z, arm, eps=EPS)
     assert close(eta, ref), np.max(np.abs(eta - ref))
     ref = oracle_trace(f, z, arm, beta=10.0)
@@ -452,9 +453,9 @@ def test_until_is_nested():
     z[0, :, 0] = [1.0, -0.5]
     z[0, :, 1] = [0.7, -1.0]
     with jax.enable_x64(True):
-        pm = float(stl.robustness(prog, z, methods.SEMANTICS["gm_pm01"], EPS)[0, 0])
-        p10 = float(stl.robustness(prog, z, methods.SEMANTICS["gm_pm10"], EPS)[0, 0])
-        ex = float(stl.robustness(prog, z, methods.SEMANTICS["gm_exp"], EPS)[0, 0])
+        pm = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_pm01"], EPS)[0, 0])
+        p10 = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_pm10"], EPS)[0, 0])
+        ex = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_exp"], EPS)[0, 0])
     assert close(pm, -0.625)
     # gm_pm10: prefix -(0.5^10 / 2)^{1/10}, root -((1 + prefix^10) / 2)^{1/10}; flat -((1 + 0.5^10) / 3)^{1/10}
     pre = -(0.5 ** 10 / 2) ** 0.1
@@ -535,7 +536,7 @@ def test_formula_gradients(arm):
         lit = jax.vmap(lambda u: literal_trace(f, u, arm, EPS))
         v_lit, vjp = jax.vjp(lit, jnp.asarray(z))
         g_lit = np.asarray(vjp(jnp.asarray(seed))[0])
-        v_jax, vjp = jax.vjp(lambda u: stl.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
+        v_jax, vjp = jax.vjp(lambda u: stl_jax.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
         g_jax = np.asarray(vjp(jnp.asarray(seed))[0])
     assert close(v_lit, oracle_trace(f, z, arm, eps=EPS))
     assert close(v_jax, v_lit)
@@ -563,7 +564,7 @@ def f7_case(seed, B):
 def test_jax_warp_cpu(arm):
     prog, z, seed = f7_case(9, 4)
     with jax.enable_x64(True):
-        j, vjp = jax.vjp(lambda u: stl.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
+        j, vjp = jax.vjp(lambda u: stl_jax.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
         gj = np.asarray(vjp(jnp.asarray(seed))[0])
     scalar = EPS if arm == "gm_exp" else 1.0
     for param in (matched_param(prog, arm, EPS), scalar):  # per-row and scalar parameters
@@ -582,7 +583,7 @@ def test_jax_warp_cuda_float32(arm):
     tol = 1024 * np.finfo(np.float32).eps
     prog, z, seed = f7_case(10, 8)
     with jax.enable_x64(True):
-        j, vjp = jax.vjp(lambda u: stl.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
+        j, vjp = jax.vjp(lambda u: stl_jax.robustness(prog, u, methods.SEMANTICS[arm], EPS), jnp.asarray(z))
         j, gj = np.asarray(j), np.asarray(vjp(jnp.asarray(seed))[0])
     s = wp.array(z.astype(np.float32), dtype=wp.float32, device="cuda:0", requires_grad=True)
     tape = wp.Tape()

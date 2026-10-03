@@ -50,7 +50,6 @@ Program.outputs locates each read as (step, rows). locate() and read() use them.
 """
 from dataclasses import dataclass
 
-import jax.numpy as jnp
 import numpy as np
 
 from .formula import Always, And, Atom, Eventually, Or, Release, Until, atoms, horizon, to_nnf
@@ -333,12 +332,3 @@ def locate(program, g, times, witnesses=None):
     if np.any(rows < 0):
         raise ValueError("the program holds no row for some of the requested times")
     return sid, rows.astype(np.int64)
-
-
-def read(program, values):
-    """The values of a pruned program's reads, concatenated in read order along the last axis.
-
-    values is the list evaluate() returns (one array per step, batch axes first)."""
-    if program.outputs is None:
-        raise ValueError("read() needs a program compiled with reads")
-    return jnp.concatenate([values[s][..., rows] for s, rows in program.outputs], -1)  # reads

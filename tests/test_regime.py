@@ -9,11 +9,13 @@ import numpy as np
 from mujoco import mjx
 
 from examples import e022_regime as E
+from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
-from sparsemax_dstl.core_study import methods
+from sparsemax_dstl.jax import methods
 from sparsemax_dstl.tasks import human as Hm
 from sparsemax_dstl.tasks import panda as P
 from sparsemax_dstl.tasks import workspace as W
+from sparsemax_dstl.tasks import workspace_mjx as Wm
 
 PLANT = W.Plant()
 HAND = (Hm.NAMES.index("forearm_r"), 1)  # the hand point: forearm_r's distal endpoint
@@ -71,11 +73,11 @@ def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
     H = Fraction(8)
     sc = E.scenario(8)
     rg = E.ranges(0.5)
-    I = W.regime_instances(W.TUNING_SEED, 2, sc, rg)
+    I = Wm.regime_instances(W.TUNING_SEED, 2, sc, rg)
     rs = W.robot_spheres(PLANT, sc.robot_spacing)
     with jax.enable_x64(True):
         mx = mjx.put_model(PLANT.model, impl="jax")
-        C = np.asarray(jax.vmap(jax.vmap(lambda q: W.points(mx, PLANT, sc.robot_spacing, q)[1]))(
+        C = np.asarray(jax.vmap(jax.vmap(lambda q: Wm.points(mx, PLANT, sc.robot_spacing, q)[1]))(
             jnp.asarray(np.stack([I["q0"], I["q_pick"], I["q_handover"]], 1))))  # (2, 3, S_r, 3)
     t = np.arange(sc.samples) * float(sc.h_s)
     hr = I["human_radii"]
@@ -100,8 +102,8 @@ def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
             mk = (dk - Rp) / Rp
             other = np.where((episode[sel][:, None, None] & arm[None, None]), np.inf, mk)
             assert other.min() >= I["regime"]["standoff_margin"][i] + W.REGIME_CLEAR - 1e-12
-    E019 = W._instances(W.TUNING_SEED, sc, PLANT)
-    cand = W._regime_candidates(W.TUNING_SEED, sc, PLANT)
+    E019 = Wm._instances(W.TUNING_SEED, sc, PLANT)
+    cand = Wm._regime_candidates(W.TUNING_SEED, sc, PLANT)
     np.testing.assert_array_equal(cand["q0"][E019["candidate"]], E019["q0"])
     np.testing.assert_array_equal(cand["Qg"][E019["candidate"], 1], E019["q_handover"])
     assert I["candidate"].tolist() == sorted(I["candidate"].tolist())
@@ -122,7 +124,7 @@ def test_pruned_program_keeps_the_root_value_and_gradient():
         for trial in range(3):  # random traces
             Z = jnp.asarray(rng.normal(0.5, 0.5, (sc.samples, 3 + n_r + 2 * n_r * n_h)))
             for sem in ("exact", methods.SEMANTICS["sparsemax"], methods.SEMANTICS["lse"]):  # three semantics
-                f = lambda prog: jax.value_and_grad(lambda Z: stl.robustness(prog, Z, sem, 0.2)[0])(Z)
+                f = lambda prog: jax.value_and_grad(lambda Z: stl_jax.robustness(prog, Z, sem, 0.2)[0])(Z)
                 (a, ga), (b, gb) = f(pr), f(full)
                 assert float(a) == float(b)
                 np.testing.assert_allclose(np.asarray(ga), np.asarray(gb), rtol=0, atol=1e-14)
@@ -151,14 +153,14 @@ def test_node_weights_are_the_matched_reductions_gradients():
 def test_blocked_rollout_equals_physics_rollout():
     """float64, 2 s (100 intervals, 2 blocks): states equal to 1e-12 and the gradient of a state
     functional to 1e-9 relative."""
-    I = W.regime_instances(W.TUNING_SEED, 1, E.scenario(8), E.ranges(0.5))
+    I = Wm.regime_instances(W.TUNING_SEED, 1, E.scenario(8), E.ranges(0.5))
     with jax.enable_x64(True):
         mx = mjx.put_model(PLANT.model, impl="jax")
         x0 = jnp.asarray(np.concatenate([I["q0"][0], np.zeros(7)]))
         U = jnp.asarray(E.random_start(3, 100)) * jnp.asarray(P.torque_limit())
         a = E.rollout(mx, 10, x0, U)
-        b = W.physics_rollout(mx, 10, x0, U)
+        b = Wm.physics_rollout(mx, 10, x0, U)
         np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0, atol=1e-12)
         f = lambda roll: jax.grad(lambda U: jnp.sum(jnp.sin(roll(mx, 10, x0, U)[::10])))(U)
-        ga, gb = np.asarray(f(E.rollout)), np.asarray(f(W.physics_rollout))
+        ga, gb = np.asarray(f(E.rollout)), np.asarray(f(Wm.physics_rollout))
     assert np.abs(ga - gb).max() <= 1e-9 * np.abs(gb).max()

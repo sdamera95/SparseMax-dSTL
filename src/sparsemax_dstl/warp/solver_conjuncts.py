@@ -26,10 +26,10 @@ import time
 import numpy as np
 import warp as wp
 
-from . import constrained_warp as CW
-from .stl.warp_backend import Evaluator, matched_param
-from .warp_plant import Plant
-from .warp_predicates import Predicates
+from . import solver as CW
+from .evaluator import Evaluator, matched_param
+from .plant import Plant
+from .predicates import Predicates
 
 
 class ConjChain:

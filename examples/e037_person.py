@@ -67,9 +67,10 @@ def check_main(start_dir, regime_csv, out):
 
     from examples import e022_regime as E
     from examples import e039_person_zone as P39
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
@@ -91,11 +92,11 @@ def check_main(start_dir, regime_csv, out):
         sel = np.nonzero(np.isclose(z["wait"], w))[0]
         masks = np.stack([P39.phase_masks(w, d, t) for d in U.DEPTHS])[depth_idx[sel]]  # (B, 5, T); two depths
         hr = jnp.asarray(person(w, E039_PLACE)["human_radii"])
-        mg = jax.jit(jax.vmap(lambda x, p, hd, hc: W.margins(mx, plant, sc, {"pick": p, "handover": hd, "human_centres": hc, "human_radii": hr}, x), (0, 0, 0, None)))
-        sg = jax.jit(jax.vmap(lambda x, p, hd, hc: W.scores(mx, plant, sc, {"pick": p, "handover": hd, "human_centres": hc, "human_radii": hr}, x), (0, 0, 0, None)))
+        mg = jax.jit(jax.vmap(lambda x, p, hd, hc: Wm.margins(mx, plant, sc, {"pick": p, "handover": hd, "human_centres": hc, "human_radii": hr}, x), (0, 0, 0, None)))
+        sg = jax.jit(jax.vmap(lambda x, p, hd, hc: Wm.scores(mx, plant, sc, {"pick": p, "handover": hd, "human_centres": hc, "human_radii": hr}, x), (0, 0, 0, None)))
 
         def children(M_, sem, e):
-            v = stl.evaluate(prog, M_, sem, e)
+            v = stl_jax.evaluate(prog, M_, sem, e)
             return jnp.ravel(v[-1])[0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx]
         f_ex = jax.jit(jax.vmap(lambda M_: children(M_, "exact", None)))
         f_pl = jax.jit(jax.vmap(lambda M_: children(M_, methods.SEMANTICS["lse_plain"], EPS_P)))
@@ -183,9 +184,9 @@ def roots_main(start_dir, choice_csv, regime_csv, out, eps):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     jax.config.update("jax_enable_x64", True)
     with open(choice_csv) as fh:
         place = {int(r["instance"]): float(r["place"]) for r in csv.DictReader(fh)}
@@ -203,11 +204,11 @@ def roots_main(start_dir, choice_csv, regime_csv, out, eps):
         r_idx = np.asarray(root.index[0, :root.count[0]])
         args = (jnp.asarray(z["X64"][sel]), jnp.asarray(z["pick"][sel]), jnp.asarray(z["handover"][sel]), jnp.asarray(hc))
         inst = lambda p, hd, h: {"pick": p, "handover": hd, "human_centres": h, "human_radii": hr}  # noqa: E731
-        Mg = jax.vmap(lambda x, p, hd, h: W.margins(mx, plant, sc, inst(p, hd, h), x))(*args)
-        Zs = jax.vmap(lambda x, p, hd, h: W.scores(mx, plant, sc, inst(p, hd, h), x))(*args)
+        Mg = jax.vmap(lambda x, p, hd, h: Wm.margins(mx, plant, sc, inst(p, hd, h), x))(*args)
+        Zs = jax.vmap(lambda x, p, hd, h: Wm.scores(mx, plant, sc, inst(p, hd, h), x))(*args)
 
         def children(M_, sem, e):
-            v = stl.evaluate(prog, M_, sem, e)
+            v = stl_jax.evaluate(prog, M_, sem, e)
             return jnp.ravel(v[-1])[0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx]
         r_ex, c_ex = (np.asarray(a) for a in jax.jit(jax.vmap(lambda M_: children(M_, "exact", None)))(Mg))
         cols = {"instance": z["instance"][sel], "depth": z["depth"][sel], "wait": np.full(len(sel), w), "place": np.asarray([place[int(i)] for i in z["instance"][sel]]),

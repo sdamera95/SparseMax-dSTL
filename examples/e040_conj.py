@@ -58,8 +58,8 @@ def combine_main(out, items):
 
 def build(I, k1=False, device="cuda:0"):
     from examples import e022_regime as R
-    from sparsemax_dstl import constrained_conj as CC
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
+    from sparsemax_dstl.warp import solver_conjuncts as CC
     n = len(I["x0"])
     waits = sorted({g[4] for g in I["groups"]})
     progs = {w: R.core_program(D.scenario(w), I["n_h"]) for w in waits}
@@ -78,8 +78,8 @@ def run_main(path, iterations, out, runs, k1=False):
 
     import warp as wp
 
-    from sparsemax_dstl import constrained_conj as CC
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
+    from sparsemax_dstl.warp import solver_conjuncts as CC
     t0 = time.perf_counter()
     I = D.load(path, runs)
     chain, referee = build(I, k1)
@@ -115,7 +115,7 @@ def _setup64(I, r, cache):
     from mujoco import mjx
 
     from examples import e022_regime as E
-    from sparsemax_dstl.tasks import workspace as W
+    from sparsemax_dstl.tasks import workspace_mjx as Wm
     w, hc = float(I["run_wait"][r]), I["hc"][r]
     key = (w, hc.tobytes()[:4096], float(hc.sum()))
     if key not in cache:
@@ -123,7 +123,7 @@ def _setup64(I, r, cache):
         inst = {"pick": jnp.asarray(I["pick"]), "handover": jnp.asarray(I["handover"]), "human_centres": jnp.asarray(np.asarray(hc, np.float64)),
                 "human_radii": jnp.asarray(I["hr"])}
         mx = mjx.put_model(E.plant.model, impl="jax")
-        f = jax.jit(jax.vmap(lambda Xs: (W.margins(mx, E.plant, sc, inst, Xs), W.scores(mx, E.plant, sc, inst, Xs))))
+        f = jax.jit(jax.vmap(lambda Xs: (Wm.margins(mx, E.plant, sc, inst, Xs), Wm.scores(mx, E.plant, sc, inst, Xs))))
         cache[key] = (sc, f, conj_programs(sc, int(I["n_h"])))
     return cache[key]
 
@@ -132,12 +132,12 @@ def _conj_values(cps, Zs, arm, eps):
     import jax
     import jax.numpy as jnp
 
-    from sparsemax_dstl import stl
-    from sparsemax_dstl.core_study import methods
+    from sparsemax_dstl import jax as stl_jax
+    from sparsemax_dstl.jax import methods
     sem = "exact" if arm == "exact" else methods.SEMANTICS[arm]
     out = []
     for pg in cps:  # over the four conjuncts (formula structure)
-        f = jax.jit(jax.vmap(lambda Z, pg=pg: stl.evaluate(pg, Z, sem, eps)[-1][0]))
+        f = jax.jit(jax.vmap(lambda Z, pg=pg: stl_jax.evaluate(pg, Z, sem, eps)[-1][0]))
         out.append(np.asarray(f(jnp.asarray(Zs))))
     return np.stack(out, -1)
 
@@ -184,7 +184,7 @@ def path_main(run_path, inst_path, out, iterates):
 def linesearch_main(run_path, inst_path, out, k):
     import jax
 
-    from sparsemax_dstl import constrained_warp as CW
+    from sparsemax_dstl.warp import solver as CW
     jax.config.update("jax_enable_x64", True)
     z, I = np.load(run_path), D.load(inst_path, "all")
     cache, rows = {}, []

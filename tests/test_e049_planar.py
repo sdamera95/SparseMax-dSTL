@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize
 
-from sparsemax_dstl.stl import Atom, Not, Until, budget, compile_formula
+from sparsemax_dstl.jax import budget
+from sparsemax_dstl.stl import Atom, Not, Until, compile_formula
 from sparsemax_dstl.tasks import planar as P
 from sparsemax_dstl.tasks import planar_oracle as O
 
