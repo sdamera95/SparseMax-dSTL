@@ -11,7 +11,7 @@ The two numerical examples of the paper (Section V): the planar unicycle and the
 | `src/sparsemax_dstl/jax/evaluator.py`, `src/sparsemax_dstl/warp/evaluator.py` | the robustness under every measure in JAX, and in Warp with its adjoint |
 | `src/sparsemax_dstl/jax/methods.py` | the measures at an equal worst-case error per node |
 | `src/sparsemax_dstl/tasks/planar*.py` | the unicycle example: regions, specification, fixed trajectories, the JAX and Warp chains, the solver |
-| `src/sparsemax_dstl/tasks/panda.py`, `workspace.py`, `human.py`, `panda_mjx.py`, `workspace_mjx.py` | the manipulator example: the Panda, the person, the predicates, the specification |
+| `src/sparsemax_dstl/tasks/panda.py`, `workspace.py`, `human.py`, `workspace_program.py`, `panda_mjx.py`, `workspace_mjx.py` | the manipulator example: the Panda, the person, the predicates, the specification |
 | `src/sparsemax_dstl/warp/plant.py`, `predicates.py` | the MuJoCo Warp rollout with its reverse-mode gradient, and the predicates as Warp kernels |
 | `src/sparsemax_dstl/warp/solver.py`, `solver_conjuncts.py` | the first-order augmented Lagrangian solver under single shooting, with one constraint per conjunct |
 | `examples/` | the scripts that produce the numbers of the paper's tables |

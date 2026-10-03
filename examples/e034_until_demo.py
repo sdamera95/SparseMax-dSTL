@@ -155,8 +155,9 @@ def starts_main(out):
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     t_start = time.perf_counter()
-    plant = E.plant
+    plant = Wp.plant
     m = plant.model
     sc = scenario(WAITS[0])
     inst0 = instance(WAITS[0], "out")
@@ -298,9 +299,10 @@ def regime_main(start_dir, out):
     from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     z = np.load(start_dir + "/starts.npz")
-    plant = E.plant
+    plant = Wp.plant
     mx = mjx.put_model(plant.model, impl="jax")
     X = z["X64"]
     t = np.arange(X.shape[1]) * HS
@@ -310,7 +312,7 @@ def regime_main(start_dir, out):
             sc = scenario(w)
             I = instance(w, person)
             inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-            prog = E.core_program(sc, len(I["human_radii"]))
+            prog = Wp.core_program(sc, len(I["human_radii"]))
             root = prog.steps[prog.root]
             r_idx = np.asarray(root.index[0, :root.count[0]])
             sel = np.nonzero(np.isclose(z["wait"], w))[0]
@@ -395,16 +397,16 @@ def load(path, runs="all"):
 
 def build(I, device="cuda:0"):
     """Programs per wait, Chain and Referee for the runs of I."""
-    from examples import e022_regime as R
+    from sparsemax_dstl.tasks import workspace_program as Wp
     from sparsemax_dstl.warp import solver as CW
     n = len(I["x0"])
-    progs = {w: R.core_program(scenario(w), I["n_h"]) for w in sorted({g[4] for g in I["groups"]})}
+    progs = {w: Wp.core_program(scenario(w), I["n_h"]) for w in sorted({g[4] for g in I["groups"]})}
     sc = scenario(min(progs))
     groups = [(m_, e, a, b, progs[w]) for m_, e, a, b, w in I["groups"]]
     blocks = [(a, b, progs[w]) for _, _, a, b, w in I["groups"]]
     pick, hand = np.broadcast_to(I["pick"], (n, 3)), np.broadcast_to(I["handover"], (n, 3))
-    chain = CW.Chain(R.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], groups, device=device)
-    referee = CW.Referee(R.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], device=device, blocks=blocks)
+    chain = CW.Chain(Wp.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], groups, device=device)
+    referee = CW.Referee(Wp.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], device=device, blocks=blocks)
     return progs, chain, referee
 
 

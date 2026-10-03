@@ -19,8 +19,9 @@ jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
-from sparsemax_dstl.tasks import planar as P0  # noqa: E402
 from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402
+from sparsemax_dstl.tasks import planar_disk_jax as Dj  # noqa: E402
+from sparsemax_dstl.tasks import planar_jax as P0j  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle as O  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle_sound as OS  # noqa: E402
 
@@ -41,8 +42,8 @@ for row, src in (("lse_plain", r2), ("lse_sound", r3), ("sparsemax", r2)):
         for b in ("jax", "warp"):
             V = np.load(src / ("solve_" + b + "_" + row + "_c" + str(c) + ".npz"))["V"]
             for g, gname in enumerate(("S1", "S2")):
-                z = np.asarray(P0.rollout(D.Z0, V[g] * D.U_MAX))
-                S = np.asarray(D.scores(jnp.asarray(z[:, :2]), D.REGIONS))
+                z = np.asarray(P0j.rollout(D.Z0, V[g] * D.U_MAX))
+                S = np.asarray(Dj.scores(jnp.asarray(z[:, :2]), D.REGIONS))
                 rw, valid = O.until_rows(-S[:, 0], S[:, 1], a1, b1)
                 inner_x = np.min(np.where(valid, rw, np.inf), 1)
                 k = int(np.argmax(inner_x))

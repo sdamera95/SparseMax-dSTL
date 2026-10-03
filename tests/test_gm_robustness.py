@@ -36,7 +36,7 @@ from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
 from sparsemax_dstl.jax import evaluator as semantics
 from sparsemax_dstl.jax import methods
-from sparsemax_dstl.warp.evaluator import matched_param, robustness_warp
+from sparsemax_dstl.warp.evaluator import Evaluator, matched_param, robustness_warp
 
 wp.config.log_level = wp.LOG_WARNING
 ARMS = ("gm_pm01", "gm_pm10", "gm_exp")
@@ -572,6 +572,35 @@ def test_jax_warp_cpu(arm):
         assert close(v, j, 1e-10, 0.0), np.max(np.abs(v - j))
         assert close(g, gj, 1e-10, 0.0), np.max(np.abs(g - gj))
     assert close(j, oracle_trace(F7, z, arm, eps=EPS))
+
+
+@pytest.mark.parametrize("arm", ["gm_pm01", "gm_pm10"])
+@pytest.mark.parametrize("dtype", [wp.float64, wp.float32])
+def test_warp_power_means_take_no_parameter(arm, dtype):
+    """In the Warp evaluator the parameter None gives the value and the gradient of the parameter 1.0, bit for bit."""
+    prog, z, seed = f7_case(11, 4)
+    x = wp.array(z, dtype=dtype, device="cpu")
+    w = wp.array(seed, dtype=dtype, device="cpu")
+    out = []
+    for param in (None, 1.0):  # no parameter, and the placeholder
+        rho, grad = Evaluator(prog, arm, param, B=len(z), dtype=dtype, device="cpu").gradient(x, w)
+        out.append((rho.numpy().copy(), grad.numpy().copy(), robustness_warp(prog, x, arm, param).numpy()))
+    for a, b in zip(*out):  # value, gradient, value through robustness_warp
+        assert a.dtype == b.dtype and a.tobytes() == b.tobytes()
+    assert np.abs(out[0][1]).max() > 0
+
+
+@pytest.mark.parametrize("arm", ["lse", "lse_plain", "sparsemax", "gm_exp"])
+def test_warp_other_measures_need_a_parameter(arm):
+    prog, z, _ = f7_case(11, 4)
+    x = wp.array(z, dtype=wp.float64, device="cpu")
+    with pytest.raises(ValueError, match="positive parameter"):
+        Evaluator(prog, arm, None, B=len(z), dtype=wp.float64, device="cpu")
+    with pytest.raises(ValueError, match="positive parameter"):
+        robustness_warp(prog, x, arm, None)
+    for arm_ in ("gm_pm01", "gm_pm10"):  # a number must still be positive
+        with pytest.raises(ValueError, match="positive parameter"):
+            Evaluator(prog, arm_, 0.0, B=len(z), dtype=wp.float64, device="cpu")
 
 
 @pytest.mark.skipif(not wp.is_cuda_available(), reason="needs a CUDA device for Warp")

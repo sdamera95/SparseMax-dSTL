@@ -617,7 +617,7 @@ def _check(program, scores, semantics, param):
             p = np.asarray(param, dtype=np.float64)
             if len(p) != R or not np.all(np.isfinite(p) & (p >= 0)):
                 raise ValueError("a per-row parameter needs " + str(R) + " finite nonnegative values")
-        elif param is None or not param > 0:
+        elif not (param is None and semantics in ORDER) and (param is None or not param > 0):
             raise ValueError(semantics + " semantics need a positive parameter")
         if np.any([s.kind != "atom" and np.any(s.count == 0) for s in program.steps]):
             raise ValueError("smooth semantics need nonempty windows; compile with boundary='strict'")
@@ -634,7 +634,7 @@ def _launches(program, plan, scores, vals, semantics, param, oracle):
     B, T = scores.shape[0], program.T
     smooth = SMOOTH[semantics]
     per_row = int(smooth > 0 and np.ndim(param) == 1)
-    beta = dt(1.0 if smooth == 0 or per_row else param)
+    beta = dt(1.0 if smooth == 0 or per_row or param is None else param)
     params = _param_array(plan, param if per_row else 0.0, dt, dev)
     out = []
     A = sum(st.kind == "atom" for st in program.steps)

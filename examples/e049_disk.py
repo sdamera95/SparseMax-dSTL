@@ -27,6 +27,8 @@ from sparsemax_dstl.jax.operators import lower_max, lower_min  # noqa: E402
 from sparsemax_dstl.stl import Atom, Until  # noqa: E402
 from sparsemax_dstl.tasks import planar as P0  # noqa: E402
 from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402
+from sparsemax_dstl.tasks import planar_disk_jax as Dj  # noqa: E402
+from sparsemax_dstl.tasks import planar_jax as P0j  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle as O  # noqa: E402
 
 out = Path(sys.argv[1])
@@ -39,8 +41,8 @@ FD = 1e-6
 
 
 def sim(u):
-    z = np.asarray(P0.rollout(D.Z0, u))
-    return z, np.asarray(D.scores(jnp.asarray(z[:, :2]), D.REGIONS))
+    z = np.asarray(P0j.rollout(D.Z0, u))
+    return z, np.asarray(Dj.scores(jnp.asarray(z[:, :2]), D.REGIONS))
 
 
 def until_f(tm):
@@ -51,8 +53,8 @@ def weight(S, tm, m, eps, viol):
     """AD weight on the samples viol: sum of d(until at 0)/d(not Red at the sample), the operands being the
     predicates themselves (not Red = -S[:, 0], Green = S[:, 1])."""
     phi, psi = -S[:, 0], S[:, 1]
-    sem = P0.matched(m, eps)
-    val, g = jax.value_and_grad(lambda ph: P0.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], sem))(jnp.asarray(phi))
+    sem = P0j.matched(m, eps)
+    val, g = jax.value_and_grad(lambda ph: P0j.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], sem))(jnp.asarray(phi))
     w = float(jnp.sum(jnp.where(viol, g, 0.0)))
     S2 = np.stack([phi, psi], 1)
     up = O.ev(until_f(tm), S2 + FD * np.stack([viol, 0 * viol], 1), np.array([0]), sem=m, eps=eps)[0]
@@ -70,7 +72,7 @@ def node_errors(S, tm, eps):
     M = len(inner_s)
     outer_s = float(lower_max(jnp.asarray(inner_s), 2 * eps / (1 - 1 / M)))
     j = int(np.argmax(inner_s))
-    _, conj_s = D.values(jnp.asarray(S), tm, P0.matched("sparsemax", eps))
+    _, conj_s = Dj.values(jnp.asarray(S), tm, P0j.matched("sparsemax", eps))
     conj_s = np.asarray(conj_s)
     top_s = float(lower_min(jnp.asarray(conj_s), 2 * eps / (1 - 1 / 4)))
     return {"err_inner": float(inner_x[j] - inner_s[j]), "err_outer": float(inner_s.max() - outer_s), "err_top": float(conj_s.min() - top_s)}
@@ -87,7 +89,7 @@ def evaluate(wait, eps=EPS, design=DESIGN, smooth_eps=None):
         z, S = sim(u)
         row = {"trajectory": name, "wait": wait, "eps": se, "T": T, "a1": a1, "b1": b1}
         for m in ("exact",) + METHODS:
-            sv, cv = D.values(jnp.asarray(S), tm, P0.matched(m, se))
+            sv, cv = Dj.values(jnp.asarray(S), tm, P0j.matched(m, se))
             row["spec_" + m] = float(sv)
             row["until_" + m] = float(np.asarray(cv)[0])
             osv = O.ev(spec, S, np.array([0]), sem=m, eps=se)[0]

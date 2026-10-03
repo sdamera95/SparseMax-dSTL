@@ -86,12 +86,13 @@ def starts_main(H, start_dir, out):
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
     sel = np.nonzero(np.isclose(z["wait"], W10))[0]
     w = set_horizon(H)
     n = len(sel)
-    plant = E.plant
+    plant = Wp.plant
     m = plant.model
     sc = U.scenario(w)
     inst, depth, a, ray = z["instance"][sel], z["depth"][sel], z["a"][sel], z["ray"][sel]
@@ -118,7 +119,7 @@ def starts_main(H, start_dir, out):
     X64 = U.replay(V, x0)
     with jax.enable_x64(True):
         Mg = np.asarray(margins_j(jnp.asarray(X64, jnp.float64), jnp.asarray(z["pick"][sel], jnp.float64), jnp.asarray(z["handover"][sel], jnp.float64)))
-        prog = E.core_program(sc, len(person["human_radii"]))
+        prog = Wp.core_program(sc, len(person["human_radii"]))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         conj = np.asarray(jax.jit(jax.vmap(lambda M_: (lambda v: jnp.concatenate([v[s] for s in root.sources], -1)[..., r_idx])(stl_jax.evaluate(prog, M_, "exact"))))(jnp.asarray(Mg)))

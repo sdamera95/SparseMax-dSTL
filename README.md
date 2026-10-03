@@ -20,10 +20,10 @@ The evaluation graph adopts the masking formulation of STLCG++ [1], the method o
 | `lse_plain` | the plain log-sum-exp | $\beta$ |
 | `lse` | the sound log-sum-exp, a lower bound of the exact robustness | $\beta$ |
 | `gm_pm01`, `gm_pm10` | the generalized-mean robustness [3] of order $(0, 1)$ and $(-10, 10)$ | none |
-| `gm_exp` | the generalized-mean robustness [3] with exponential generating functions | the error per node $\varepsilon$ |
+| `gm_exp` | the generalized-mean robustness [3] with exponential generating functions | the error per node $\varepsilon$ in Warp, $\beta$ in JAX |
 | `sparsemax` | SparseMax [2], a lower bound of the exact robustness | $\gamma$ |
 
-Both implementations take these names. The Warp evaluator requires a positive number as the parameter of `gm_pm01` and `gm_pm10` and does not use it.
+Both implementations take these names. For `gm_exp` the Warp evaluator takes the error per node $\varepsilon$ and uses $\beta = \log m / \varepsilon$ for a conjunction or disjunction of $m$ entries, and the JAX evaluator takes $\beta$; `sparsemax_dstl.jax.methods.SEMANTICS["gm_exp"]` is the JAX form that takes $\varepsilon$.
 
 ## Install
 
@@ -142,7 +142,7 @@ JAX_PLATFORMS=cpu uv run pytest -q --ignore=tests/test_warp_predicates.py
 JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 ```
 
-400 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
+409 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
 
 ## References
 

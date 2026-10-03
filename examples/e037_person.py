@@ -71,10 +71,11 @@ def check_main(start_dir, regime_csv, out):
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
-    plant = E.plant
+    plant = Wp.plant
     mx = mjx.put_model(plant.model, impl="jax")
     Xs = z["X64"]
     t = np.arange(Xs.shape[1]) * U.HS
@@ -86,7 +87,7 @@ def check_main(start_dir, regime_csv, out):
     rows = []
     for w in U.WAITS:  # four waits (one program each)
         sc = U.scenario(w)
-        prog = E.core_program(sc, len(person(w, E039_PLACE)["human_radii"]))
+        prog = Wp.core_program(sc, len(person(w, E039_PLACE)["human_radii"]))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         sel = np.nonzero(np.isclose(z["wait"], w))[0]
@@ -187,11 +188,12 @@ def roots_main(start_dir, choice_csv, regime_csv, out, eps):
     from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     with open(choice_csv) as fh:
         place = {int(r["instance"]): float(r["place"]) for r in csv.DictReader(fh)}
     z = np.load(start_dir + "/starts.npz")
-    plant = E.plant
+    plant = Wp.plant
     mx = mjx.put_model(plant.model, impl="jax")
     rows = []
     for w in U.WAITS:  # four waits (one program each)
@@ -199,7 +201,7 @@ def roots_main(start_dir, choice_csv, regime_csv, out, eps):
         sel = np.nonzero(np.isclose(z["wait"], w))[0]
         hc = np.stack([person(w, place[int(i)])["human_centres"] for i in z["instance"][sel]])  # per start (instances' places)
         hr = jnp.asarray(person(w, E039_PLACE)["human_radii"])
-        prog = E.core_program(sc, len(hr))
+        prog = Wp.core_program(sc, len(hr))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         args = (jnp.asarray(z["X64"][sel]), jnp.asarray(z["pick"][sel]), jnp.asarray(z["handover"][sel]), jnp.asarray(hc))

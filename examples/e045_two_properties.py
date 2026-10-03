@@ -186,18 +186,18 @@ def theory_main(H, path, prefix):
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     w, I, idx = starts(H, path)
     sc, prog, kw = until_program(w, int(I["n_h"]))
     Xs = D.replay(I["V0"][idx], I["x0"][idx[0]].astype(np.float64))
-    mx = mjx.put_model(E.plant.model, impl="jax")
+    mx = mjx.put_model(Wp.plant.model, impl="jax")
     fixed = {"pick": jnp.asarray(I["pick"]), "handover": jnp.asarray(I["handover"]), "human_radii": jnp.asarray(I["hr"])}
 
     def both(x, hc):
         inst = dict(fixed, human_centres=hc)
-        return Wm.margins(mx, E.plant, sc, inst, x), Wm.scores(mx, E.plant, sc, inst, x)
+        return Wm.margins(mx, Wp.plant, sc, inst, x), Wm.scores(mx, Wp.plant, sc, inst, x)
     f = jax.jit(jax.vmap(both))
     hc = jnp.asarray(I["hc"][idx], jnp.float64)
     Mg, Zs = (np.asarray(a) for a in f(jnp.asarray(Xs), hc))
@@ -280,7 +280,7 @@ def gpu_main(out_csv, items, dev="cuda:0", only=None):
 
     import warp as wp
 
-    from examples import e022_regime as R
+    from sparsemax_dstl.tasks import workspace_program as Wp
     from sparsemax_dstl.warp.evaluator import Evaluator, matched_param
     from sparsemax_dstl.warp.plant import Plant
     from sparsemax_dstl.warp.predicates import Predicates
@@ -303,7 +303,7 @@ def gpu_main(out_csv, items, dev="cuda:0", only=None):
         Xw = plant.rollout(np.tile(I["x0"][idx], (nc, 1)), np.tile(I["V0"][idx], (nc, 1, 1)))
         copies = float(np.abs(Xw.reshape(nc, n, T, -1) - Xw[None, :n]).max())
         t_roll = time.perf_counter() - t0
-        pred = Predicates(R.plant, sc, T, nworld=n, device=dev)
+        pred = Predicates(Wp.plant, sc, T, nworld=n, device=dev)
         pred.set_instance(np.broadcast_to(I["pick"], (n, 3)), np.broadcast_to(I["handover"], (n, 3)), I["hc"][idx], I["hr"])
         q = wp.array(np.ascontiguousarray(Xw[:n, :, :7].reshape(-1, 7)), dtype=float, device=dev, requires_grad=True)
         v = wp.array(np.ascontiguousarray(Xw[:n, :, 7:].reshape(-1, 7)), dtype=float, device=dev, requires_grad=True)

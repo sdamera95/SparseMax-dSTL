@@ -30,12 +30,12 @@ CONJ = ("separation", "slowdown", "order", "handover")
 
 def conj_programs(sc, n_h):
     """The four conjunct programs (pruned; the conjunct at t = 0 is the root) in CONJ order."""
-    from examples import e022_regime as E
     from sparsemax_dstl import stl
     from sparsemax_dstl.tasks import workspace as W
-    names, rows, _ = W.specs(sc, E.N_R, n_h)
+    from sparsemax_dstl.tasks import workspace_program as Wp
+    names, rows, _ = W.specs(sc, Wp.N_R, n_h)
     by = dict(zip(names, rows))
-    return tuple(E.prune(stl.compile_formula(by[c], sc.samples)) for c in CONJ)
+    return tuple(Wp.prune(stl.compile_formula(by[c], sc.samples)) for c in CONJ)
 
 
 def combine_main(out, items):
@@ -57,19 +57,19 @@ def combine_main(out, items):
 
 
 def build(I, k1=False, device="cuda:0"):
-    from examples import e022_regime as R
+    from sparsemax_dstl.tasks import workspace_program as Wp
     from sparsemax_dstl.warp import solver as CW
     from sparsemax_dstl.warp import solver_conjuncts as CC
     n = len(I["x0"])
     waits = sorted({g[4] for g in I["groups"]})
-    progs = {w: R.core_program(D.scenario(w), I["n_h"]) for w in waits}
+    progs = {w: Wp.core_program(D.scenario(w), I["n_h"]) for w in waits}
     cps = {w: ((progs[w],) if k1 else conj_programs(D.scenario(w), I["n_h"])) for w in waits}
     sc = D.scenario(min(progs))
     groups = [(m_, e, a, b, cps[w]) for m_, e, a, b, w in I["groups"]]
     blocks = [(a, b, progs[w]) for _, _, a, b, w in I["groups"]]
     pick, hand = np.broadcast_to(I["pick"], (n, 3)), np.broadcast_to(I["handover"], (n, 3))
-    chain = CC.ConjChain(R.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], groups, device=device)
-    referee = CW.Referee(R.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], device=device, blocks=blocks)
+    chain = CC.ConjChain(Wp.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], groups, device=device)
+    referee = CW.Referee(Wp.plant, sc, progs[min(progs)], I["x0"], pick, hand, I["hc"], I["hr"], device=device, blocks=blocks)
     return chain, referee
 
 
@@ -114,16 +114,16 @@ def _setup64(I, r, cache):
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     w, hc = float(I["run_wait"][r]), I["hc"][r]
     key = (w, hc.tobytes()[:4096], float(hc.sum()))
     if key not in cache:
         sc = D.scenario(w)
         inst = {"pick": jnp.asarray(I["pick"]), "handover": jnp.asarray(I["handover"]), "human_centres": jnp.asarray(np.asarray(hc, np.float64)),
                 "human_radii": jnp.asarray(I["hr"])}
-        mx = mjx.put_model(E.plant.model, impl="jax")
-        f = jax.jit(jax.vmap(lambda Xs: (Wm.margins(mx, E.plant, sc, inst, Xs), Wm.scores(mx, E.plant, sc, inst, Xs))))
+        mx = mjx.put_model(Wp.plant.model, impl="jax")
+        f = jax.jit(jax.vmap(lambda Xs: (Wm.margins(mx, Wp.plant, sc, inst, Xs), Wm.scores(mx, Wp.plant, sc, inst, Xs))))
         cache[key] = (sc, f, conj_programs(sc, int(I["n_h"])))
     return cache[key]
 

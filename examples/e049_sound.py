@@ -22,8 +22,9 @@ import numpy as np  # noqa: E402
 
 from sparsemax_dstl.jax import budget  # noqa: E402
 from sparsemax_dstl.stl import Atom, Until, compile_formula  # noqa: E402
-from sparsemax_dstl.tasks import planar as P0  # noqa: E402
 from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402
+from sparsemax_dstl.tasks import planar_disk_jax as Dj  # noqa: E402
+from sparsemax_dstl.tasks import planar_jax as P0j  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle as O  # noqa: E402
 from sparsemax_dstl.tasks import planar_oracle_sound as OS  # noqa: E402
 
@@ -70,7 +71,7 @@ def weight(S, tm, sem, viol):
     """AD weight on the samples viol: sum of d(until at 0)/d(not Red at the sample); and the central
     finite difference of the NumPy evaluation along viol (a test check)."""
     phi, psi = -S[:, 0], S[:, 1]
-    g = jax.grad(lambda ph: P0.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], D.matched(sem, EPS)))(jnp.asarray(phi))
+    g = jax.grad(lambda ph: P0j.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], Dj.matched(sem, EPS)))(jnp.asarray(phi))
     f = Until((tm["a1"], tm["b1"]), Atom(0), Atom(1))
     up = oracle(f, np.stack([phi + FD * viol, psi], 1), sem)
     dn = oracle(f, np.stack([phi - FD * viol, psi], 1), sem)
@@ -84,11 +85,11 @@ for wait in WAITS:  # over the four waits
     spec, conj, _ = D.specification(tm["a1"], tm["b1"], tm["a2"], tm["b2"], T)
     B = float(budget(compile_formula(spec, T, reads=[(spec, [0])]), lambda m, param: np.where(np.asarray(m) > 1, EPS, 0.0))[0])
     for name, u in (("S1", u1), ("S2", u2)):
-        z = np.asarray(P0.rollout(D.Z0, u))
-        S = np.asarray(D.scores(jnp.asarray(z[:, :2]), D.REGIONS))
+        z = np.asarray(P0j.rollout(D.Z0, u))
+        S = np.asarray(Dj.scores(jnp.asarray(z[:, :2]), D.REGIONS))
         row = {"trajectory": name, "wait": wait, "wait_s": round(wait * D.H, 1), "T": T, "a1": tm["a1"], "b1": tm["b1"], "budget_path": B}
         for m in METHODS:  # over the smoothings
-            sv, cv = D.values(jnp.asarray(S), tm, D.matched(m, EPS))
+            sv, cv = Dj.values(jnp.asarray(S), tm, Dj.matched(m, EPS))
             row["spec_" + m] = float(sv)
             ref = oracle(spec, S, m)
             checks.append({"wait": wait, "trajectory": name, "method": m, "quantity": "spec value", "jax": float(sv), "reference": float(ref), "abs_diff": abs(float(sv) - ref)})

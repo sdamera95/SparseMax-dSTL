@@ -139,8 +139,9 @@ def starts_main(out):
     from sparsemax_dstl.tasks import panda as P
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     t_start = time.perf_counter()
-    plant = E.plant
+    plant = Wp.plant
     m = plant.model
     sc = U.scenario(U.WAITS[0])
     d = draws()
@@ -207,7 +208,7 @@ def starts_main(out):
     # exact conjuncts per wait (one program each)
     conj = np.zeros((len(V), len(E.CONJUNCTS)))
     for j, w in enumerate(U.WAITS):  # over the four waits (programs)
-        prog = E.core_program(U.scenario(w), len(person["human_radii"]))
+        prog = Wp.core_program(U.scenario(w), len(person["human_radii"]))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
 
@@ -333,10 +334,11 @@ def regime_main(start_dir, out):
     from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     t_start = time.perf_counter()
     z = np.load(start_dir + "/starts.npz")
-    plant = E.plant
+    plant = Wp.plant
     mx = mjx.put_model(plant.model, impl="jax")
     X = z["X64"]
     t = np.arange(X.shape[1]) * U.HS
@@ -346,7 +348,7 @@ def regime_main(start_dir, out):
     rows = []
     for w in U.WAITS:  # over the four waits (one program each)
         sc = U.scenario(w)
-        prog = E.core_program(sc, len(person["human_radii"]))
+        prog = Wp.core_program(sc, len(person["human_radii"]))
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         sel = np.nonzero(np.isclose(z["wait"], w))[0]

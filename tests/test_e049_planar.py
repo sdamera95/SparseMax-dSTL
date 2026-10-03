@@ -19,6 +19,7 @@ from scipy.optimize import minimize
 from sparsemax_dstl.jax import budget
 from sparsemax_dstl.stl import Atom, Not, Until, compile_formula
 from sparsemax_dstl.tasks import planar as P
+from sparsemax_dstl.tasks import planar_jax as Pj
 from sparsemax_dstl.tasks import planar_oracle as O
 
 jax.config.update("jax_enable_x64", True)
@@ -30,8 +31,8 @@ def case():
     u1, u2, tm = P.trajectories(30)
     out = {"tm": tm, "u": {"S1": u1, "S2": u2}}
     for name, u in (("S1", u1), ("S2", u2)):
-        z = np.asarray(P.rollout(P.Z0, u))
-        out[name] = (z, P.scores(jnp.asarray(z[:, :2])))
+        z = np.asarray(Pj.rollout(P.Z0, u))
+        out[name] = (z, Pj.scores(jnp.asarray(z[:, :2])))
     return out
 
 
@@ -54,7 +55,7 @@ def test_inputs_and_samples(case):
 
 def test_rollout_against_loop_oracle(case):
     u = case["u"]["S1"]
-    z = np.asarray(P.rollout(P.Z0, u))
+    z = np.asarray(Pj.rollout(P.Z0, u))
     ref = [np.array(P.Z0, float)]
     for v, w in u:  # brute-force oracle: one step at a time
         x, y, th = ref[-1]
@@ -68,7 +69,7 @@ def test_values_against_oracle(case, method):
     spec, until = P.specification(tm["a1"], tm["b1"], tm["a2"], tm["b2"], tm["T"])
     for name in ("S1", "S2"):
         S = case[name][1]
-        sv, uv = P.spec_values(S, tm, P.matched(method, EPS))
+        sv, uv = Pj.spec_values(S, tm, Pj.matched(method, EPS))
         assert abs(float(sv) - O.ev(spec, np.asarray(S), np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
         assert abs(float(uv) - O.ev(until, np.asarray(S), np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
 
@@ -80,7 +81,7 @@ def test_until_derivative(case, method):
     T = tm["T"]
     phi_x = O.ev(Not(P.box(0)), np.asarray(S), np.arange(T))
     viol = (phi_x < 0) & (np.arange(T) <= tm["b1"])
-    _, w, g = P.until_weight(S, tm, P.matched(method, EPS), jnp.asarray(viol))
+    _, w, g = Pj.until_weight(S, tm, Pj.matched(method, EPS), jnp.asarray(viol))
     phi = O.ev(Not(P.box(0)), np.asarray(S), np.arange(T), sem=method, eps=EPS)
     psi = O.ev(P.box(1), np.asarray(S), np.arange(T), sem=method, eps=EPS)
     f = Until((tm["a1"], tm["b1"]), Atom(0), Atom(1))
@@ -115,6 +116,6 @@ def test_sparsemax_lower_bound(case):
     B = float(budget(prog, lambda m, param: np.where(np.asarray(m) > 1, EPS, 0.0))[0])
     for name in ("S1", "S2"):
         S = case[name][1]
-        ex, _ = P.spec_values(S, tm, P.matched("exact", EPS))
-        sm, _ = P.spec_values(S, tm, P.matched("sparsemax", EPS))
+        ex, _ = Pj.spec_values(S, tm, Pj.matched("exact", EPS))
+        sm, _ = Pj.spec_values(S, tm, Pj.matched("sparsemax", EPS))
         assert float(ex) - B - 1e-12 <= float(sm) <= float(ex) + 1e-12

@@ -18,8 +18,10 @@ import pytest
 from sparsemax_dstl.jax import budget
 from sparsemax_dstl.stl import Atom, Until, compile_formula
 from sparsemax_dstl.tasks import planar as P0
-from sparsemax_dstl.tasks import planar_al as A
+from sparsemax_dstl.tasks import planar_al_jax as Aj
 from sparsemax_dstl.tasks import planar_disk as D
+from sparsemax_dstl.tasks import planar_disk_jax as Dj
+from sparsemax_dstl.tasks import planar_jax as P0j
 from sparsemax_dstl.tasks import planar_oracle as O
 
 jax.config.update("jax_enable_x64", True)
@@ -31,8 +33,8 @@ def case():
     u1, u2, tm = D.trajectories(30, EPS)
     out = {"tm": tm, "u": {"S1": u1, "S2": u2}}
     for name, u in (("S1", u1), ("S2", u2)):
-        z = np.asarray(P0.rollout(D.Z0, u))
-        out[name] = (z, np.asarray(D.scores(jnp.asarray(z[:, :2]), D.REGIONS)))
+        z = np.asarray(P0j.rollout(D.Z0, u))
+        out[name] = (z, np.asarray(Dj.scores(jnp.asarray(z[:, :2]), D.REGIONS)))
     return out
 
 
@@ -56,7 +58,7 @@ def test_values_against_oracle(case, method):
     spec, conj, _ = D.specification(tm["a1"], tm["b1"], tm["a2"], tm["b2"], tm["T"])
     for name in ("S1", "S2"):
         S = case[name][1]
-        sv, cv = D.values(jnp.asarray(S), tm, P0.matched(method, EPS))
+        sv, cv = Dj.values(jnp.asarray(S), tm, P0j.matched(method, EPS))
         assert abs(float(sv) - O.ev(spec, S, np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
         for c, v in zip(conj, np.asarray(cv)):  # over the conjuncts
             assert abs(float(v) - O.ev(c, S, np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
@@ -68,8 +70,8 @@ def test_weight_against_finite_difference(case, method):
     S = case["S1"][1]
     phi, psi = -S[:, 0], S[:, 1]
     viol = (phi < 0) & (np.arange(tm["T"]) <= tm["b1"])
-    sem = P0.matched(method, EPS)
-    g = jax.grad(lambda ph: P0.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], sem))(jnp.asarray(phi))
+    sem = P0j.matched(method, EPS)
+    g = jax.grad(lambda ph: P0j.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], sem))(jnp.asarray(phi))
     w = float(jnp.sum(jnp.where(viol, g, 0.0)))
     f = Until((tm["a1"], tm["b1"]), Atom(0), Atom(1))
     h = 1e-6
@@ -84,8 +86,8 @@ def test_sparsemax_band(case):
     B = float(budget(compile_formula(spec, tm["T"], reads=[(spec, [0])]), lambda m, param: np.where(np.asarray(m) > 1, EPS, 0.0))[0])
     for name in ("S1", "S2"):
         S = case[name][1]
-        ex, _ = D.values(jnp.asarray(S), tm, P0.matched("exact", EPS))
-        sm, _ = D.values(jnp.asarray(S), tm, P0.matched("sparsemax", EPS))
+        ex, _ = Dj.values(jnp.asarray(S), tm, P0j.matched("exact", EPS))
+        sm, _ = Dj.values(jnp.asarray(S), tm, P0j.matched("sparsemax", EPS))
         assert float(ex) - B - 1e-12 <= float(sm) <= float(ex) + 1e-12
 
 
@@ -93,10 +95,10 @@ def test_sparsemax_band(case):
 def test_jax_chain(case, method):
     tm = case["tm"]
     _, conj, _ = D.specification(tm["a1"], tm["b1"], tm["a2"], tm["b2"], tm["T"])
-    ch = A.JaxChain(conj, tm["T"], method, EPS, D.Z0, D.REGIONS, 1)
+    ch = Aj.JaxChain(conj, tm["T"], method, EPS, D.Z0, D.REGIONS, 1)
     V = (case["u"]["S1"] / D.U_MAX)[None]
     r = ch.forward(V)
-    _, cv = D.values(jnp.asarray(case["S1"][1]), tm, P0.matched(A.JAX_NAMES[method], EPS))
+    _, cv = Dj.values(jnp.asarray(case["S1"][1]), tm, P0j.matched(Aj.JAX_NAMES[method], EPS))
     assert np.max(np.abs(r[0] - np.asarray(cv))) < 1e-10
     w = np.array([[1.0, 0.5, 0.25, 0.125]])
     g = ch.pullback(w)

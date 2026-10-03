@@ -69,12 +69,12 @@ def robot_centres(X):
     from functools import partial
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     with jax.enable_x64(True):
-        mx = mjx.put_model(E.plant.model, impl="jax")
-        f = partial(Wm.points, mx, E.plant, W.Scenario().robot_spacing)
+        mx = mjx.put_model(Wp.plant.model, impl="jax")
+        f = partial(Wm.points, mx, Wp.plant, W.Scenario().robot_spacing)
         one = lambda x: jax.jvp(f, (x[:7],), (x[7:],))  # noqa: E731
         (_, C), (_, Cd) = jax.jit(jax.vmap(jax.vmap(one)))(jnp.asarray(X, jnp.float64))
         return np.asarray(C), np.linalg.norm(np.asarray(Cd), axis=-1)
@@ -107,11 +107,12 @@ def scan_main(start_dir, geo_path, out, tag, roots=False, arm_names=None):
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace as W
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     t0 = time.perf_counter()
     geos = list(load_geometries(geo_path).values())
     z = np.load(start_dir + "/starts.npz")
-    plant = E.plant
+    plant = Wp.plant
     mx = mjx.put_model(plant.model, impl="jax")
     X = z["X64"]
     T = X.shape[1]
@@ -130,7 +131,7 @@ def scan_main(start_dir, geo_path, out, tag, roots=False, arm_names=None):
         n_h = len(insts[0]["human_radii"])
         hc_all = np.stack([I["human_centres"] for I in insts])  # (G, T, S_h, 3)
         hr = insts[0]["human_radii"]
-        prog = E.core_program(sc, n_h)
+        prog = Wp.core_program(sc, n_h)
         root = prog.steps[prog.root]
         r_idx = np.asarray(root.index[0, :root.count[0]])
         base = {k: jnp.asarray(insts[0][k]) for k in ("pick", "handover", "human_radii")}

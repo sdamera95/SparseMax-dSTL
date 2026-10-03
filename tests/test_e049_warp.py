@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from sparsemax_dstl.tasks import planar_disk as D
-from sparsemax_dstl.tasks.planar_al import JaxChain
+from sparsemax_dstl.tasks.planar_al_jax import JaxChain
 from sparsemax_dstl.tasks.planar_warp import WarpChain
 
 jax.config.update("jax_enable_x64", True)

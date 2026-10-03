@@ -81,14 +81,14 @@ def zone_pick(H, X):
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     w = horizon(H)
     sc, I = D.scenario(w), D.instance(w, "out")
     with jax.enable_x64(True):
-        mx = mjx.put_model(E.plant.model, impl="jax")
+        mx = mjx.put_model(Wp.plant.model, impl="jax")
         inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-        M = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X, jnp.float64)))
+        M = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, Wp.plant, sc, inst, x)))(jnp.asarray(X, jnp.float64)))
     return M[..., 2], M[..., 0]
 
 
@@ -185,10 +185,10 @@ def grads_main(H, start_dir, out_dir, arms, eps_, traces=True):
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     w = horizon(H)
     z = np.load(start_dir + "/starts.npz")
@@ -196,13 +196,13 @@ def grads_main(H, start_dir, out_dir, arms, eps_, traces=True):
     X = np.asarray(z["X64"][sel], np.float64)
     sc, I = D.scenario(w), D.instance(w, "out")
     inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-    mx = mjx.put_model(E.plant.model, impl="jax")
-    Mg = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
-    Zs = np.asarray(jax.jit(jax.vmap(lambda x: Wm.scores(mx, E.plant, sc, inst, x)))(jnp.asarray(X)))
+    mx = mjx.put_model(Wp.plant.model, impl="jax")
+    Mg = np.asarray(jax.jit(jax.vmap(lambda x: Wm.margins(mx, Wp.plant, sc, inst, x)))(jnp.asarray(X)))
+    Zs = np.asarray(jax.jit(jax.vmap(lambda x: Wm.scores(mx, Wp.plant, sc, inst, x)))(jnp.asarray(X)))
     if traces:
         np.savez(out_dir + "/traces" + str(H) + ".npz", X64=X, margins=Mg, scores=Zs, depth=z["depth"][sel], start=z["start"][sel], wait=w, horizon=H,
                  plan=sel, start_file=start_dir + "/starts.npz", columns="atoms in tasks.workspace.layout order: 0 pick, 1 handover, 2 zone, then speed, sep, slow")
-    prog = E.core_program(sc, len(I["human_radii"]))
+    prog = Wp.core_program(sc, len(I["human_radii"]))
     root = prog.steps[prog.root]
     r_idx = np.asarray(root.index[0, :root.count[0]])
 
@@ -435,8 +435,8 @@ def path_main(H, instance, run_path, out, iterates, runs="all"):
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     w = horizon(H)
     zi, z = np.load(instance), np.load(run_path)
     sel = np.arange(len(z["run_method"])) if runs == "all" else np.asarray([int(i) for i in runs.split(",")])
@@ -449,9 +449,9 @@ def path_main(H, instance, run_path, out, iterates, runs="all"):
     X = D.replay(V.reshape((-1,) + V.shape[2:]), x0)  # (R K, T, 14), the certificate's replay
     sc, I = D.scenario(w), D.instance(w, "out")
     with jax.enable_x64(True):
-        mx = mjx.put_model(E.plant.model, impl="jax")
+        mx = mjx.put_model(Wp.plant.model, impl="jax")
         inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-        f = jax.jit(lambda x: (Wm.margins(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])], Wm.scores(mx, E.plant, sc, inst, x)[:, jnp.asarray([0, 2])]))
+        f = jax.jit(lambda x: (Wm.margins(mx, Wp.plant, sc, inst, x)[:, jnp.asarray([0, 2])], Wm.scores(mx, Wp.plant, sc, inst, x)[:, jnp.asarray([0, 2])]))
         Mg, Zs = (np.asarray(a) for a in jax.lax.map(f, jnp.asarray(X), batch_size=8))
     t = np.arange(X.shape[1]) * D.HS
     entry = (Mg[:, :, 1] < 0) & (t[None] <= D.T_HOLD + 1e-9)
@@ -483,8 +483,8 @@ def rule_columns(P, n_h):
     """Boolean (4, P): the score columns that feed each rule (tasks.workspace.layout): separation
     the sep atoms; slow-down the slow and speed atoms; order the zone and pick atoms; handover the
     handover atom. Every atom feeds exactly one rule."""
-    from examples import e022_regime as E
-    nr = E.N_R
+    from sparsemax_dstl.tasks import workspace_program as Wp
+    nr = Wp.N_R
     c = np.arange(P)
     sep = (c >= 3 + nr) & (c < 3 + nr + nr * n_h)
     slow = (c >= 3 + nr + nr * n_h) | ((c >= 3) & (c < 3 + nr))
@@ -512,12 +512,12 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
     import jax.numpy as jnp
     from mujoco import mjx
 
-    from examples import e022_regime as E
     from sparsemax_dstl import jax as stl_jax
     from sparsemax_dstl.jax import methods
     from sparsemax_dstl.tasks import panda as Pd
     from sparsemax_dstl.tasks import panda_mjx as Pm
     from sparsemax_dstl.tasks import workspace_mjx as Wm
+    from sparsemax_dstl.tasks import workspace_program as Wp
     jax.config.update("jax_enable_x64", True)
     w = horizon(H)
     zi, z = np.load(instance), np.load(run_path)
@@ -533,9 +533,9 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
     x0 = np.asarray(zi["x0"][int(z["index"][sel[0]])], np.float64)
     X = D.replay(V, x0)
     sc, I = D.scenario(w), D.instance(w, "out")
-    mx = mjx.put_model(E.plant.model, impl="jax")
+    mx = mjx.put_model(Wp.plant.model, impl="jax")
     inst = {k: jnp.asarray(I[k]) for k in ("pick", "handover", "human_centres", "human_radii")}
-    prog = E.core_program(sc, len(I["human_radii"]))
+    prog = Wp.core_program(sc, len(I["human_radii"]))
     root = prog.steps[prog.root]
     r_idx = np.asarray(root.index[0, :root.count[0]])
     sem = methods.SEMANTICS[arm]
@@ -544,12 +544,12 @@ def diag_main(H, instance, run_path, out, runs, iterates, chunk=4, control=True)
         v = stl_jax.evaluate(prog, Zt, sem, e)
         return v[-1][0], jnp.concatenate([v[j] for j in root.sources], -1)[r_idx][2]
 
-    margins = lambda x: Wm.margins(mx, E.plant, sc, inst, x)  # noqa: E731
-    scores = lambda x: Wm.scores(mx, E.plant, sc, inst, x)  # noqa: E731
+    margins = lambda x: Wm.margins(mx, Wp.plant, sc, inst, x)  # noqa: E731
+    scores = lambda x: Wm.scores(mx, Wp.plant, sc, inst, x)  # noqa: E731
     umax = jnp.asarray(Pd.torque_limit(), jnp.float64)
     n_sub = Pd.substeps(D.H_CTRL)
     n_h = len(I["human_radii"])
-    rc = jnp.asarray(rule_columns(3 + E.N_R + 2 * E.N_R * n_h, n_h)[2:])  # order and handover; see below for the other two
+    rc = jnp.asarray(rule_columns(3 + Wp.N_R + 2 * Wp.N_R * n_h, n_h)[2:])  # order and handover; see below for the other two
 
     def score_part(a):
         x, e = a

@@ -20,21 +20,11 @@ import sys
 import time
 from pathlib import Path
 
-import jax
+import numpy as np
 
-jax.config.update("jax_enable_x64", True)
-import jax.numpy as jnp  # noqa: E402
-import matplotlib  # noqa: E402
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib.patches import Circle  # noqa: E402
-
-from sparsemax_dstl.tasks import planar as P0  # noqa: E402
-from sparsemax_dstl.tasks import planar_al as A  # noqa: E402
-from sparsemax_dstl.tasks import planar_disk as D  # noqa: E402
-from sparsemax_dstl.tasks import planar_oracle as O  # noqa: E402
+from sparsemax_dstl.tasks import planar_al as A
+from sparsemax_dstl.tasks import planar_disk as D
+from sparsemax_dstl.tasks import planar_oracle as O
 
 out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
@@ -56,7 +46,11 @@ def chain_for(row, backend):
     method, authors = ROWS[row]
     progs = (spec,) if authors else conj
     if backend == "jax":
-        return A.JaxChain(progs, T, method, EPS, D.Z0, D.REGIONS, 2)
+        import jax
+
+        jax.config.update("jax_enable_x64", True)
+        from sparsemax_dstl.tasks import planar_al_jax as Aj
+        return Aj.JaxChain(progs, T, method, EPS, D.Z0, D.REGIONS, 2)
     from sparsemax_dstl.tasks.planar_warp import WarpChain
     return WarpChain(progs, T, method, EPS, D.Z0, D.REGIONS, 2)
 
@@ -85,10 +79,24 @@ if mode == "solve":
 # ------------------------------------------------------------------
 # report mode
 
+import jax  # noqa: E402
+
+jax.config.update("jax_enable_x64", True)
+import jax.numpy as jnp  # noqa: E402
+import matplotlib  # noqa: E402
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.patches import Circle  # noqa: E402
+
+from sparsemax_dstl.tasks import planar_disk_jax as Dj  # noqa: E402
+from sparsemax_dstl.tasks import planar_jax as P0j  # noqa: E402
+
+
 def measure(V):
     """Exact robustness and its conjuncts (NumPy evaluation of the definitions), clearances and effort."""
-    z = np.asarray(P0.rollout(D.Z0, V * D.U_MAX))
-    S = np.asarray(D.scores(jnp.asarray(z[:, :2]), D.REGIONS))
+    z = np.asarray(P0j.rollout(D.Z0, V * D.U_MAX))
+    S = np.asarray(Dj.scores(jnp.asarray(z[:, :2]), D.REGIONS))
     parts = [O.ev(c_, S, np.array([0]))[0] for c_ in conj]  # over the conjuncts
     red = -S[:, 0]
     ks = np.arange(tm["a1"], tm["b1"] + 1)
@@ -167,7 +175,7 @@ colors = {"Red": "#d9534f", "Green": "#5cb85c", "Blue": "#428bca", "Obstacle": "
 style = {"lse_plain": ("#e08214", "-"), "lse_sound": ("#8c510a", "--"), "gm_pm01": ("#2166ac", "-"), "gm_pm10": ("#4393c3", "--"), "sparsemax": ("k", "-"),
          "gm_pm01_authors": ("#1b7837", "-"), "gm_pm10_authors": ("#5aae61", "--")}
 fig, axs = plt.subplots(1, 2, figsize=(8.4, 4.4))
-z0 = np.asarray(P0.rollout(D.Z0, u1))
+z0 = np.asarray(P0j.rollout(D.Z0, u1))
 for ax, c in zip(axs, MARGINS):
     for nm, (cx, cy, rad) in zip(D.NAMES, D.REGIONS):
         ax.add_patch(Circle((cx, cy), rad, color=colors[nm], alpha=0.3, lw=0))

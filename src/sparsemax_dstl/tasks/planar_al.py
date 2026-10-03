@@ -21,16 +21,7 @@ Chain interface (as constrained_conj.ConjChain): forward(V) -> r (n, K) and keep
 pullback(w) -> sum_c w_c d r_c / d V (n, N, 2); values(Va) -> r (n, lanes, K) at Va (n, lanes, N, 2);
 times (dict of seconds).
 """
-import time
-
-import jax
-import jax.numpy as jnp
 import numpy as np
-
-from ..jax.evaluator import evaluate, read
-from ..stl import compile_formula
-from . import planar as P0
-from . import planar_disk as D
 
 # ------------------------------------------------------------------
 # the solver's arithmetic: constrained_warp.py lines 54-60 and 69-113 (at 607f883), copied unchanged,
@@ -76,50 +67,6 @@ class CW:
         Vn = np.where(hit[:, None, None], pick(Vt), V)
         an = np.maximum(np.where(hit, pick(a), alpha * 0.5 ** trials), 1e-6)
         return Vn, an, j, hit, pick
-
-
-JAX_NAMES = {"lse_plain": "lse_plain", "lse": "lse_sound", "gm_pm01": "gm01", "gm_pm10": "gm10", "sparsemax": "sparsemax", "exact": "exact"}
-
-
-class JaxChain:
-    """The unicycle rollout (lax.scan), the disk predicates and the JAX STL evaluator, one program per
-    conjunct (each the conjunct as its own root, read at t = 0), with reverse-mode derivatives.
-    method is a Warp-backend name ('lse_plain', 'lse' (the sound log-sum-exp, round 3), 'gm_pm01', 'gm_pm10',
-    'sparsemax', 'exact')."""
-
-    def __init__(self, conjuncts, T, method, eps, z0, regions, n, trials=CW.TRIALS):
-        self.n, self.T, self.lanes, self.K = n, T, trials + 1, len(conjuncts)
-        progs = [compile_formula(c, T, reads=[(c, [0])]) for c in conjuncts]  # over the conjuncts
-        sem = D.matched(JAX_NAMES[method], eps)
-        z0 = jnp.asarray(z0, jnp.float64)
-        umax = jnp.asarray(D.U_MAX)
-
-        def r_one(V):
-            z = P0.rollout(z0, V * umax)
-            S = D.scores(z[:, :2], regions)
-            return jnp.stack([read(p, evaluate(p, S, sem))[0] for p in progs])  # over the conjuncts
-
-        self._val = jax.jit(jax.vmap(r_one))
-        self._fwd = jax.jit(jax.vmap(lambda V: (r_one(V), jax.jacrev(r_one)(V))))
-        self.C = None
-        self.times = {}
-
-    def forward(self, V):
-        t0 = time.perf_counter()
-        r, C = self._fwd(jnp.asarray(V))
-        self.C = np.asarray(C)
-        self.times["forward"] = self.times.get("forward", 0.0) + time.perf_counter() - t0
-        return np.asarray(r)
-
-    def pullback(self, w):
-        return np.einsum("nk,nkij->nij", np.asarray(w), self.C)
-
-    def values(self, Va):
-        t0 = time.perf_counter()
-        n, L = Va.shape[:2]
-        out = np.asarray(self._val(jnp.asarray(Va.reshape((n * L,) + Va.shape[2:])))).reshape(n, L, self.K)
-        self.times["values"] = self.times.get("values", 0.0) + time.perf_counter() - t0
-        return out
 
 
 def init_state(V0, alpha0, K):

@@ -16,6 +16,7 @@ from sparsemax_dstl.tasks import human as Hm
 from sparsemax_dstl.tasks import panda as P
 from sparsemax_dstl.tasks import workspace as W
 from sparsemax_dstl.tasks import workspace_mjx as Wm
+from sparsemax_dstl.tasks import workspace_program as Wp
 
 PLANT = W.Plant()
 HAND = (Hm.NAMES.index("forearm_r"), 1)  # the hand point: forearm_r's distal endpoint
@@ -117,7 +118,7 @@ def test_pruned_program_keeps_the_root_value_and_gradient():
     n_h = 7
     core = W.specs(sc, n_r, n_h)[2]
     full = stl.compile_formula(core, sc.samples)
-    pr = E.prune(full)
+    pr = Wp.prune(full)
     assert sum(s.index.size for s in pr.steps if s.kind != "atom") < sum(s.index.size for s in full.steps if s.kind != "atom")
     rng = np.random.default_rng(0)
     with jax.enable_x64(True):

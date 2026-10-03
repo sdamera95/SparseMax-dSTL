@@ -1,8 +1,10 @@
 """The Warp side in a process where JAX, MJX and the optional packages of the examples cannot be imported: imports,
-the evaluator and the predicates, CPU, float64.
+the evaluator, the predicates, the manipulator's specification and the unicycle's Warp chain with its solver, CPU,
+float64.
 
-The reference values come from the JAX evaluator and the MJX predicates in the test process."""
+The reference values come from the JAX evaluator, the MJX predicates and the JAX chain in the test process."""
 import json
+import pkgutil
 import subprocess
 import sys
 import textwrap
@@ -13,10 +15,15 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
+import sparsemax_dstl
+from examples import e034_until_demo, e040_conj
 from sparsemax_dstl.jax import methods, robustness
 from sparsemax_dstl.stl import Atom, Until, compile_formula
+from sparsemax_dstl.tasks import planar_disk
 from sparsemax_dstl.tasks import workspace as W
 from sparsemax_dstl.tasks import workspace_mjx as Wm
+from sparsemax_dstl.tasks import workspace_program
+from sparsemax_dstl.tasks.planar_al_jax import JaxChain
 
 ROOT = Path(__file__).resolve().parents[1]
 ABSENT = ("jax", "mujoco.mjx", "optax", "scipy", "matplotlib")
@@ -31,35 +38,41 @@ for name in ABSENT:
         continue
     raise SystemExit(name + " imported")
 """.replace("ABSENT", repr(ABSENT))
-WARP_MODULES = ["sparsemax_dstl.warp.evaluator", "sparsemax_dstl.warp.plant", "sparsemax_dstl.warp.predicates",
-                "sparsemax_dstl.warp.solver", "sparsemax_dstl.warp.solver_conjuncts"]
-# the modules the optimization of the manipulator loads before it builds the specification
-SOLVER_MODULES = ["examples.e034_until_demo", "examples.e037_instances", "examples.e037_person", "examples.e038_horizon",
-                  "examples.e040_conj", "examples.e042_instances", "sparsemax_dstl.plants", "sparsemax_dstl.stl",
-                  "sparsemax_dstl.tasks.human", "sparsemax_dstl.tasks.panda", "sparsemax_dstl.tasks.workspace"] + WARP_MODULES
+# the scripts whose Warp stages optimize the manipulator and take the torque gradient
+SOLVER_SCRIPTS = ["examples.e034_until_demo", "examples.e037_instances", "examples.e037_person", "examples.e038_horizon",
+                  "examples.e040_conj", "examples.e042_instances", "examples.e045_two_properties"]
 BETA, GAMMA, EPS = 10.0, 0.1, 0.2
 
 
-def without_jax(code, *args):
-    """Standard output of the code run from the repository root by a new interpreter in which importing any of ABSENT raises."""
-    done = subprocess.run([sys.executable, "-c", NO_JAX + textwrap.dedent(code), *args], capture_output=True, text=True, cwd=ROOT)
+def without_jax(code, *args, absent=True):
+    """Standard output of the code run from the repository root by a new interpreter in which importing any of ABSENT
+    raises; with absent=False the interpreter is an ordinary one."""
+    head = NO_JAX if absent else "import importlib, sys\n"
+    done = subprocess.run([sys.executable, "-c", head + textwrap.dedent(code), *args], capture_output=True, text=True, cwd=ROOT)
     assert done.returncode == 0, done.stderr
     return done.stdout
 
 
-def test_package_and_warp_modules_import():
-    """Importing the package loads neither Warp nor JAX, and every module of sparsemax_dstl.warp imports."""
+def test_only_the_jax_modules_need_jax():
+    """Importing the package loads neither Warp nor JAX, and every module of the package imports except those of
+    sparsemax_dstl.jax and the task modules named *_jax and *_mjx."""
+    names = sorted(m.name for m in pkgutil.walk_packages(sparsemax_dstl.__path__, "sparsemax_dstl."))
     out = without_jax("""
-        import importlib, pkgutil
+        import json
         import sparsemax_dstl
         print("warp" in sys.modules)
-        import sparsemax_dstl.warp
-        names = sorted(m.name for m in pkgutil.walk_packages(sparsemax_dstl.warp.__path__, "sparsemax_dstl.warp."))
-        for n in names:
-            importlib.import_module(n)
-        print(" ".join(names))
-    """)
-    assert out.split() == ["False"] + WARP_MODULES
+        failed = []
+        for n in json.loads(sys.argv[1]):
+            try:
+                importlib.import_module(n)
+            except ImportError:
+                failed.append(n)
+        print(json.dumps(failed))
+    """, json.dumps(names)).split("\n")
+    assert out[0] == "False"
+    assert json.loads(out[1]) == [n for n in names if n.startswith("sparsemax_dstl.jax") or n.endswith(("_jax", "_mjx"))]
+    assert {"sparsemax_dstl.warp.evaluator", "sparsemax_dstl.warp.plant", "sparsemax_dstl.warp.predicates", "sparsemax_dstl.warp.solver",
+            "sparsemax_dstl.warp.solver_conjuncts", "sparsemax_dstl.tasks.planar_warp", "sparsemax_dstl.tasks.workspace_program"} <= set(names)
 
 
 def readme_example():
@@ -75,7 +88,7 @@ def test_evaluator_gives_the_jax_values():
     program, scores = readme_example()
     jax_measure = {"exact": ("exact", None), "lse_plain": ("lse_plain", BETA), "lse": ("lse", BETA), "gm_pm01": ("gm_pm01", None),
                    "gm_pm10": ("gm_pm10", None), "gm_exp": (methods.SEMANTICS["gm_exp"], EPS), "sparsemax": ("sparsemax", GAMMA)}
-    warp_param = {"exact": None, "lse_plain": BETA, "lse": BETA, "gm_pm01": 1.0, "gm_pm10": 1.0, "gm_exp": EPS, "sparsemax": GAMMA}
+    warp_param = {"exact": None, "lse_plain": BETA, "lse": BETA, "gm_pm01": None, "gm_pm10": None, "gm_exp": EPS, "sparsemax": GAMMA}
     out = json.loads(without_jax("""
         import json
         import numpy as np
@@ -103,28 +116,31 @@ def test_evaluator_gives_the_jax_values():
             assert np.abs(np.asarray(out[measure][1]) - np.asarray(grad)).max() <= 1e-12, measure
 
 
-def test_solver_modules_import_and_the_scene_is_built():
-    """The scene, the person and the four conjuncts of the specification, built without JAX. The scripts prune the compiled
-    specification with functions of examples/e022_regime.py, which imports JAX, MJX and optax and is not loaded here."""
+def sizes(programs):
+    """Number of steps and of rows of each program."""
+    return [[len(p.steps), sum(st.length for st in p.steps)] for p in programs]
+
+
+def test_manipulator_scripts_import_and_build_the_specification():
+    """The scripts of the manipulator's Warp stages import, and their scene, person and pruned programs (the whole
+    specification and its four conjuncts) are those of the test process."""
     out = without_jax("""
-        import importlib, json
+        import json
         for n in json.loads(sys.argv[1]):
             importlib.import_module(n)
-        from examples import e034_until_demo as U
-        from sparsemax_dstl import stl
-        from sparsemax_dstl.tasks import panda, workspace as W
-        sc = U.scenario(7.22)
-        plant = W.Plant()
-        n_r = len(W.robot_spheres(plant, sc.robot_spacing)["body"])
-        inst = U.instance(7.22, "zone")
-        names, rows, spec = W.specs(sc, n_r, len(inst["human_radii"]))
-        steps = [len(stl.compile_formula(r, sc.samples).steps) for r in rows]
-        print(json.dumps([n_r, len(inst["human_radii"]), list(names), steps, panda.torque_limit().tolist()]))
-    """, json.dumps(SOLVER_MODULES))
-    sc = W.Scenario()
-    n_r, n_h, names, steps, torque = json.loads(out)
-    assert n_r == len(W.robot_spheres(W.Plant(), sc.robot_spacing)["body"]) and n_h > 0
-    assert names == ["order", "handover", "separation", "slowdown"] and len(steps) == 4 and min(steps) > 1
+        from examples import e034_until_demo, e040_conj
+        from sparsemax_dstl.tasks import panda, workspace_program
+        sc = e034_until_demo.scenario(7.22)
+        n_h = len(e034_until_demo.instance(7.22, "zone")["human_radii"])
+        programs = (workspace_program.core_program(sc, n_h),) + e040_conj.conj_programs(sc, n_h)
+        sizes = [[len(p.steps), sum(st.length for st in p.steps)] for p in programs]
+        print(json.dumps([workspace_program.N_R, n_h, sizes, panda.torque_limit().tolist()]))
+    """, json.dumps(SOLVER_SCRIPTS))
+    n_r, n_h, got, torque = json.loads(out)
+    sc = e034_until_demo.scenario(7.22)
+    assert n_r == workspace_program.N_R and n_h == len(e034_until_demo.instance(7.22, "zone")["human_radii"])
+    assert got == sizes((workspace_program.core_program(sc, n_h),) + e040_conj.conj_programs(sc, n_h))
+    assert len(got) == 5 and min(rows for _, rows in got) > 1
     assert torque == [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
 
 
@@ -162,3 +178,40 @@ def test_predicates_give_the_mjx_values(tmp_path):
         Zr = np.asarray(jax.vmap(ref)(jnp.asarray(X), jnp.asarray(hc), jnp.asarray(goals[0]), jnp.asarray(goals[1])))
     assert Z.shape == Zr.shape
     assert np.abs(Z - Zr).max() <= 1e-12
+
+
+def test_unicycle_warp_chain_and_solver(tmp_path):
+    """The unicycle's Warp chain and ten updates of the solver without JAX: the conjuncts' values against the JAX chain
+    within 1e-9, and every output equal, bit for bit, to the same run in an interpreter that has JAX."""
+    T, eps, z0 = 120, 0.1, (1.5, 1.0, np.pi / 2)
+    regions = planar_disk.make_regions((3.0, 4.5, 1.4), (5.3, 7.3, 1.0), (8.3, 2.5, 1.0), (8.8, 6.8, 0.5))
+    s = np.arange(T - 1) / (T - 1)
+    V0 = np.stack([np.full((2, T - 1), 0.9), 0.4 * np.sin(2 * np.pi * s + np.array([[0.0], [1.0]]))], -1)
+    np.savez(tmp_path / "in.npz", V0=V0, regions=regions, z0=np.asarray(z0))
+    code = """
+        import numpy as np
+        import warp as wp
+        from sparsemax_dstl.tasks import planar, planar_al, planar_disk, planar_oracle, planar_oracle_sound
+        from sparsemax_dstl.tasks.planar_warp import WarpChain
+
+        wp.config.log_level = wp.LOG_WARNING
+        d = np.load(sys.argv[1] + "/in.npz")
+        conjuncts = planar_disk.specification(40, 60, 80, 95, 120)[1]
+        chain = WarpChain(conjuncts, 120, "sparsemax", 0.1, d["z0"], d["regions"], 2)
+        r = chain.forward(d["V0"])
+        V, rs, Ls = planar_al.solve(chain, d["V0"], 10, 0.01, 0.0, 0.002)
+        np.savez(sys.argv[1] + "/" + sys.argv[2], r=r, C=chain.C, V=V, rs=rs, Ls=Ls)
+    """
+    # both runs in new interpreters: in this process an earlier test may have built the MuJoCo Warp plant, which rebinds
+    # wp.sqrt (the same derivative, rounded differently) for every kernel built afterwards
+    without_jax(code, str(tmp_path), "absent.npz")
+    without_jax(code, str(tmp_path), "present.npz", absent=False)
+    out, ref = np.load(tmp_path / "absent.npz"), np.load(tmp_path / "present.npz")
+    conjuncts = planar_disk.specification(40, 60, 80, 95, T)[1]
+    with jax.enable_x64(True):
+        r_jax = JaxChain(conjuncts, T, "sparsemax", eps, z0, regions, 2).forward(V0)
+    assert out["r"].shape == (2, 4) and np.abs(out["r"] - r_jax).max() < 1e-9
+    assert sorted(out.files) == ["C", "Ls", "V", "r", "rs"]
+    for k in out.files:
+        assert out[k].tobytes() == ref[k].tobytes(), k
+    assert np.abs(out["V"] - V0).max() > 0 and np.abs(out["C"]).max() > 1e-3
