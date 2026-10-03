@@ -85,12 +85,6 @@ JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 
 396 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
 
-## Not in this repository yet
-
-- the margin-maximization study on MJX, under single shooting and under collocation (Appendix III)
-- the cost measurements on the Jetson AGX Orin (Appendix II-G)
-- the until node in $O(b \log b)$ operations (Appendix IV)
-
 ## Citation
 
 ```bibtex
