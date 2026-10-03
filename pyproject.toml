@@ -1,24 +1,29 @@
 [project]
 name = "sparsemax-dstl"
 version = "0.1.0"
-description = "Sound sparsemax smoothing of signal temporal logic robustness, in JAX with MJX and in Warp with MuJoCo Warp"
+description = "Differentiable signal temporal logic robustness in Warp with MuJoCo Warp and in JAX with MJX, with the SparseMax smoothing"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
+# the Warp backend: nothing here needs JAX
 dependencies = [
-    # CUDA build of JAX on x86-64 Linux, CPU build elsewhere (JAX has no CUDA build for Jetson)
-    "jax[cuda13]>=0.11.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "jax>=0.11.2",
     "mujoco~=3.12.0",
-    "mujoco-mjx~=3.12.0",
     "mujoco-warp==3.12.0",
     "numpy>=2.5.3",
     "warp-lang>=1.17.0",
 ]
 
 [project.optional-dependencies]
+# the JAX backend and the MJX plant; CUDA build of JAX on x86-64 Linux, CPU build elsewhere
+jax = [
+    "jax[cuda13]>=0.11.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "jax>=0.11.2",
+    "mujoco-mjx~=3.12.0",
+]
+# what the scripts in examples/ and the tests use beside both backends
 examples = [
+    "sparsemax-dstl[jax]",
     "matplotlib>=3.11.2",
     "optax>=0.2.8",
     "scipy>=1.18.1",

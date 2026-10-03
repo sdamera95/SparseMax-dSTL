@@ -1476,10 +1476,7 @@ name = "sparsemax-dstl"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "jax" },
-    { name = "jax", extra = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "mujoco" },
-    { name = "mujoco-mjx" },
     { name = "mujoco-warp" },
     { name = "numpy" },
     { name = "warp-lang" },
@@ -1487,9 +1484,17 @@ dependencies = [
 
 [package.optional-dependencies]
 examples = [
+    { name = "jax" },
+    { name = "jax", extra = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "matplotlib" },
+    { name = "mujoco-mjx" },
     { name = "optax" },
     { name = "scipy" },
+]
+jax = [
+    { name = "jax" },
+    { name = "jax", extra = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "mujoco-mjx" },
 ]
 
 [package.dev-dependencies]
@@ -1501,18 +1506,19 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "jax", specifier = ">=0.11.2" },
-    { name = "jax", extras = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = ">=0.11.2" },
+    { name = "jax", marker = "extra == 'jax'", specifier = ">=0.11.2" },
+    { name = "jax", extras = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'jax'", specifier = ">=0.11.2" },
     { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.11.2" },
     { name = "mujoco", specifier = "~=3.12.0" },
-    { name = "mujoco-mjx", specifier = "~=3.12.0" },
+    { name = "mujoco-mjx", marker = "extra == 'jax'", specifier = "~=3.12.0" },
     { name = "mujoco-warp", git = "https://github.com/etaoxing/mujoco_warp.git?rev=357a75d60a56d67d476942a1b6e54b3045ee8e87" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "optax", marker = "extra == 'examples'", specifier = ">=0.2.8" },
     { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.18.1" },
+    { name = "sparsemax-dstl", extras = ["jax"], marker = "extra == 'examples'" },
     { name = "warp-lang", specifier = ">=1.17.0" },
 ]
-provides-extras = ["examples"]
+provides-extras = ["jax", "examples"]
 
 [package.metadata.requires-dev]
 dev = [

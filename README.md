@@ -38,7 +38,13 @@ uv sync
 
 `uv sync` installs the versions of `uv.lock`: Warp 1.17.0, JAX 0.11.2, MuJoCo and MJX 3.12.0, and MuJoCo Warp from the `adjoint` branch of [etaoxing/mujoco_warp](https://github.com/etaoxing/mujoco_warp) at commit `357a75d`, which adds the reverse-mode derivatives the manipulator example needs. That source is declared in `[tool.uv.sources]` of `pyproject.toml`, which `pip` does not read, so install with uv. The second command clones the Franka Panda model of MuJoCo Menagerie into `third_party/`; the manipulator example and its tests use it.
 
-JAX is installed with CUDA on x86-64 Linux and for the CPU elsewhere. The optimization of the manipulator needs a CUDA GPU; everything else runs on the CPU.
+`uv sync` installs both backends and what the examples and the tests use. The Warp backend alone needs no JAX:
+
+```bash
+uv sync --no-dev
+```
+
+That environment holds NumPy, Warp, MuJoCo and MuJoCo Warp. `sparsemax_dstl.warp`, the specification layer and the Warp side of both examples import and run in it. The JAX backend and the MJX plant are the extra `jax` (`uv sync --no-dev --extra jax`), which installs JAX with CUDA on x86-64 Linux and for the CPU elsewhere. The optimization of the manipulator needs a CUDA GPU; everything else runs on the CPU.
 
 ## Use
 
