@@ -56,3 +56,5 @@ The two machines agree as follows.
 
 - Manipulator: the exact robustness differs by $2 \times 10^{-8}$ after the first update and by at most $1.2 \times 10^{-5}$ over the ten, and has the same sign on both machines after every update.
 - Unicycle, 28 optimizations of 400 updates: the exact robustness of the returned trajectories differs by at most 0.003, and its sign is the same in 27. The one that differs is a GMR $(-10, 10)$ run at margin 0 whose exact robustness is within $4 \times 10^{-4}$ of zero on both machines.
+
+With the full install (`uv sync --locked`) the test suite passes on the board: 409 tests in 34 minutes, the 8 that need a CUDA device included.
