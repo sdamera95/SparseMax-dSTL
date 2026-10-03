@@ -107,7 +107,23 @@ print(w[10:14, 0].sum(), int((w != 0).sum()))   # 1.0000001 4
 
 ## On NVIDIA Jetson AGX
 
-The manipulator optimization of the paper ran on a Jetson AGX Orin 64 GB, with Warp built for CUDA 13, as the same code that runs on the workstation: the MuJoCo Warp simulation and its reverse pass, the predicates, the robustness, its gradient and the solver. The paper reports (Appendix II-G, Table XII), for one run at a horizon of 10 s:
+The Warp backend installs on a Jetson without JAX and runs on its GPU:
+
+```bash
+./deploy/orin/setup.sh
+```
+
+The script installs NumPy, Warp, MuJoCo and MuJoCo Warp with `uv sync --locked --no-dev` and evaluates every measure on the board's GPU. [deploy/orin/README.md](deploy/orin/README.md) has the commands for the manipulator optimization on the board and the measurements in full. On a Jetson AGX Orin 64 GB against a workstation with one NVIDIA RTX PRO 6000 Blackwell Max-Q, the same commit and the same environment without JAX on both:
+
+| | Workstation | Jetson AGX Orin 64 GB |
+|---|---|---|
+| one update of the manipulator optimization with one constraint per conjunct, eight trajectories, horizon 10 s | 6.7 s | 9.4 s |
+| of which the specification and its gradient | 0.02 s | 0.11 s |
+| the unicycle optimization on the Warp chain, CPU, float64 | 183 s | 539 s |
+
+Over ten updates the exact robustness of the manipulator's trajectories differs between the two machines by at most $1.2 \times 10^{-5}$ and has the same sign after every update.
+
+The paper ran the manipulator optimization on the same board with Warp built for CUDA 13, as the same code that runs on the workstation: the MuJoCo Warp simulation and its reverse pass, the predicates, the robustness, its gradient and the solver. It reports (Appendix II-G, Table XII), for one run at a horizon of 10 s:
 
 | | Workstation, NVIDIA RTX PRO 6000 | Jetson AGX Orin 64 GB |
 |---|---|---|
@@ -128,6 +144,7 @@ The first satisfying update is the same on both machines, and their exact robust
 | `src/sparsemax_dstl/warp/solver.py`, `solver_conjuncts.py` | the first-order augmented Lagrangian solver under single shooting |
 | `src/sparsemax_dstl/tasks/` | the planar unicycle and the manipulator beside a person |
 | `examples/` | the scripts that produce the numbers of the paper's tables |
+| `deploy/orin/` | the install script for a Jetson AGX Orin, and the measurements on it |
 
 ## The paper's examples
 
