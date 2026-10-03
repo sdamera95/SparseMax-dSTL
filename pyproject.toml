@@ -1,0 +1,51 @@
+[project]
+name = "sparsemax-dstl"
+version = "0.1.0"
+description = "Sound sparsemax smoothing of signal temporal logic robustness, in JAX with MJX and in Warp with MuJoCo Warp"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    # CUDA build of JAX on x86-64 Linux, CPU build elsewhere (JAX has no CUDA build for Jetson)
+    "jax[cuda13]>=0.11.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "jax>=0.11.2",
+    "mujoco~=3.12.0",
+    "mujoco-mjx~=3.12.0",
+    "mujoco-warp==3.12.0",
+    "numpy>=2.5.3",
+    "warp-lang>=1.17.0",
+]
+
+[project.optional-dependencies]
+examples = [
+    "matplotlib>=3.11.2",
+    "optax>=0.2.8",
+    "scipy>=1.18.1",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "sparsemax-dstl[examples]",
+    "pytest>=9.1.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sparsemax_dstl"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.uv.sources]
+# MuJoCo Warp with reverse-mode derivatives: the adjoint branch of the etaoxing fork, pinned by commit
+mujoco-warp = { git = "https://github.com/etaoxing/mujoco_warp.git", rev = "357a75d60a56d67d476942a1b6e54b3045ee8e87" }
+
+[tool.uv]
+# the fork's own pyproject points mujoco and warp-lang at nightly indexes; keep both on PyPI
+no-sources-package = ["mujoco", "warp-lang"]
