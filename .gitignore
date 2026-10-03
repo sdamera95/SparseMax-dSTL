@@ -1,0 +1,17 @@
+# Local only: the manuscripts, the internal records, and every dot-folder
+manuscripts/
+docs/
+.*/
+CLAUDE.md
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# Fetched models and run output
+third_party/
+out/
+*.npz
