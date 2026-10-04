@@ -36,7 +36,7 @@ uv sync
 ./scripts/fetch_menagerie.sh
 ```
 
-`uv sync` installs the versions of `uv.lock`: Warp 1.17.0, JAX 0.11.2, MuJoCo and MJX 3.12.0, and MuJoCo Warp from the `adjoint` branch of [etaoxing/mujoco_warp](https://github.com/etaoxing/mujoco_warp) at commit `357a75d`, which adds the reverse-mode derivatives the manipulator example needs. That source is declared in `[tool.uv.sources]` of `pyproject.toml`, which `pip` does not read, so install with uv. The second command clones the Franka Panda model of MuJoCo Menagerie into `third_party/`; the manipulator example and its tests use it.
+`uv sync` installs the versions of `uv.lock`: Warp 1.17.0, JAX 0.11.2, MuJoCo and MJX 3.12.0, and MuJoCo Warp from [third_party/mujoco_warp](third_party/mujoco_warp/SOURCE.md). That folder is the `adjoint` branch of [etaoxing/mujoco_warp](https://github.com/etaoxing/mujoco_warp) at commit `357a75d`, which adds the reverse-mode derivatives the manipulator example needs, with two files changed: the adjoint of box-box contact geometry is added, and a contact stays in the reverse pass when any of its constraint rows is active. The folder is declared in `[tool.uv.sources]` of `pyproject.toml`, which `pip` does not read, so install with uv. The second command clones the Franka Panda model of MuJoCo Menagerie into `third_party/`; the manipulator example and its tests use it.
 
 `uv sync` installs both backends and what the notebooks and the tests use. The Warp backend alone needs no JAX:
 
@@ -149,6 +149,7 @@ The first satisfying update is the same on both machines, and their exact robust
 | `src/sparsemax_dstl/warp/plant.py`, `predicates.py` | the MuJoCo Warp rollout with its reverse-mode gradient, and predicates as Warp kernels |
 | `src/sparsemax_dstl/warp/solver.py`, `solver_conjuncts.py` | the first-order augmented Lagrangian solver under single shooting |
 | `src/sparsemax_dstl/tasks/` | the planar unicycle and the manipulator beside a person |
+| `third_party/mujoco_warp/` | MuJoCo Warp with reverse-mode derivatives, the copy that `uv sync` installs |
 | `examples/` | three notebooks on the paper's examples, and the initial trajectories of the manipulator in `examples/data/` |
 | `deploy/orin/` | the install script and the optimization script for a Jetson AGX Orin, and the measurements on it |
 
