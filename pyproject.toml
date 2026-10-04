@@ -34,6 +34,7 @@ dev = [
     "ipykernel>=7.3.0",
     "sparsemax-dstl[examples]",
     "pytest>=9.1.1",
+    "nbconvert>=7.17.1",
 ]
 
 [build-system]
