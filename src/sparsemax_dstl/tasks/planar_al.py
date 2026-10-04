@@ -6,7 +6,7 @@ import numpy as np
 # constants and arithmetic of the update
 
 
-class CW:
+class Update:
     """Constants and arithmetic of the update."""
     ARMIJO_C = 1e-4
     TRIALS = 6
@@ -52,18 +52,18 @@ class CW:
 
 def init_state(V0, alpha0, K):
     n = len(V0)
-    return {"V": np.asarray(V0, np.float64), "alpha": np.full(n, alpha0), "nu": np.zeros((n, K)), "mu": np.full((n, K), CW.MU0), "k": 0}
+    return {"V": np.asarray(V0, np.float64), "alpha": np.full(n, alpha0), "nu": np.zeros((n, K)), "mu": np.full((n, K), Update.MU0), "k": 0}
 
 
-def iterate(chain, state, lam, delta, reward=0.0, c=CW.ARMIJO_C):
+def iterate(chain, state, lam, delta, reward=0.0, c=Update.ARMIJO_C):
     """One update of V along -grad L / |grad L| with trial steps 2 alpha 0.5^j clipped to the box, where
     L = lam E - reward r_0 + sum_c (mu_c / 2) max(0, delta - r_c + nu_c / mu_c)^2. Returns V, alpha and a record."""
     V, alpha, nu, mu = state["V"], state["alpha"], state["nu"], state["mu"]
     n, N = V.shape[:2]
     trials = chain.lanes - 1
     r = chain.forward(V)
-    E = CW.effort(V)
-    w = CW.al_weight(r, nu, mu, delta)
+    E = Update.effort(V)
+    w = Update.al_weight(r, nu, mu, delta)
     wr = w.copy()
     wr[:, 0] += reward
     L0 = lam * E - reward * r[:, 0] + np.sum(0.5 * mu * np.maximum(0.0, delta - r + nu / mu) ** 2, -1)
@@ -78,7 +78,7 @@ def iterate(chain, state, lam, delta, reward=0.0, c=CW.ARMIJO_C):
     s0 = np.maximum(0.0, delta - r_ref + nu / mu)[:, None]
     st = np.maximum(0.0, delta - rt + (nu / mu)[:, None])
     dL = lam * dE - reward * (rt[..., 0] - r_ref[:, None, 0]) + np.sum(0.5 * mu[:, None] * (st - s0) * (st + s0), -1)
-    Vn, an, j, hit, pick = CW.select_step(V, alpha, dL, g, a, Vt, c)
+    Vn, an, j, hit, pick = Update.select_step(V, alpha, dL, g, a, Vt, c)
     rn = np.where(hit[:, None], pick(rt), r_ref)
     return Vn, an, {"L": L0, "r": r, "w": w, "r_next": rn, "accepted": hit}
 
@@ -86,14 +86,14 @@ def iterate(chain, state, lam, delta, reward=0.0, c=CW.ARMIJO_C):
 def block_update(state, r_start, r_end, delta):
     """Multiplier and penalty update of every conjunct, from the values at the start and the end of a block."""
     nu, mu = state["nu"], state["mu"]
-    state["nu"] = CW.multiplier(nu, mu, r_end, delta)
-    state["mu"] = CW.penalty(mu, np.maximum(0.0, delta - r_start), np.maximum(0.0, delta - r_end))
+    state["nu"] = Update.multiplier(nu, mu, r_end, delta)
+    state["mu"] = Update.penalty(mu, np.maximum(0.0, delta - r_start), np.maximum(0.0, delta - r_end))
 
 
 def solve(chain, V0, budget, lam, delta, alpha0, reward=0.0):
     """budget updates from V0 (n, N, 2), every run the same number, with block_update every EVERY updates. Returns the
     final V and per update the conjuncts' values r (n, budget, K) and L (n, budget)."""
-    if budget % CW.EVERY:
+    if budget % Update.EVERY:
         raise ValueError("budget must be a multiple of EVERY")
     state = init_state(V0, alpha0, chain.K)
     rs, Ls = [], []
@@ -101,10 +101,10 @@ def solve(chain, V0, budget, lam, delta, alpha0, reward=0.0):
     for _ in range(budget):
         V, alpha, rec = iterate(chain, state, lam, delta, reward)
         state["V"], state["alpha"] = V, alpha
-        if state["k"] % CW.EVERY == 0:
+        if state["k"] % Update.EVERY == 0:
             r_start = rec["r"]
         state["k"] += 1
-        if state["k"] % CW.EVERY == 0:
+        if state["k"] % Update.EVERY == 0:
             block_update(state, r_start, rec["r_next"], delta)
         rs.append(rec["r"])
         Ls.append(rec["L"])

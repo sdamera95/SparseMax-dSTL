@@ -1,4 +1,4 @@
-"""The Warp backend in a process where JAX, MJX and the optional packages of the examples cannot be imported, against the JAX results of the test process."""
+"""The Warp backend in a process where JAX, MJX, optax, SciPy and Matplotlib cannot be imported, against the JAX results of the test process."""
 import json
 import pkgutil
 import subprocess
@@ -12,13 +12,12 @@ import numpy as np
 from mujoco import mjx
 
 import sparsemax_dstl
-from examples import e034_until_demo, e040_conj
 from sparsemax_dstl.jax import methods, robustness
 from sparsemax_dstl.stl import Atom, Until, compile_formula
 from sparsemax_dstl.tasks import planar_disk
 from sparsemax_dstl.tasks import workspace as W
 from sparsemax_dstl.tasks import workspace_mjx as Wm
-from sparsemax_dstl.tasks import workspace_program
+from sparsemax_dstl.tasks import workspace_program, workspace_scene
 from sparsemax_dstl.tasks.planar_al_jax import JaxChain
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,9 +33,6 @@ for name in ABSENT:
         continue
     raise SystemExit(name + " imported")
 """.replace("ABSENT", repr(ABSENT))
-# the scripts whose Warp stages optimize the manipulator and take the torque gradient
-SOLVER_SCRIPTS = ["examples.e034_until_demo", "examples.e037_instances", "examples.e037_person", "examples.e038_horizon",
-                  "examples.e040_conj", "examples.e042_instances", "examples.e045_two_properties"]
 BETA, GAMMA, EPS = 10.0, 0.1, 0.2
 
 
@@ -68,7 +64,8 @@ def test_only_the_jax_modules_need_jax():
     assert out[0] == "False"
     assert json.loads(out[1]) == [n for n in names if n.startswith("sparsemax_dstl.jax") or n.endswith(("_jax", "_mjx"))]
     assert {"sparsemax_dstl.warp.evaluator", "sparsemax_dstl.warp.plant", "sparsemax_dstl.warp.predicates", "sparsemax_dstl.warp.solver",
-            "sparsemax_dstl.warp.solver_conjuncts", "sparsemax_dstl.tasks.planar_warp", "sparsemax_dstl.tasks.workspace_program"} <= set(names)
+            "sparsemax_dstl.warp.solver_conjuncts", "sparsemax_dstl.tasks.planar_warp", "sparsemax_dstl.tasks.workspace_program",
+            "sparsemax_dstl.tasks.workspace_scene", "sparsemax_dstl.tasks.workspace_warp"} <= set(names)
 
 
 def readme_example():
@@ -117,25 +114,23 @@ def sizes(programs):
     return [[len(p.steps), sum(st.length for st in p.steps)] for p in programs]
 
 
-def test_manipulator_scripts_import_and_build_the_specification():
-    """The scripts of the manipulator's Warp stages import, and their scene, person and pruned programs (the whole
+def test_manipulator_scene_and_programs():
+    """The manipulator's scene, its initial trajectories with the person's spheres and its pruned programs (the whole
     specification and its four conjuncts) are those of the test process."""
     out = without_jax("""
         import json
-        for n in json.loads(sys.argv[1]):
-            importlib.import_module(n)
-        from examples import e034_until_demo, e040_conj
-        from sparsemax_dstl.tasks import panda, workspace_program
-        sc = e034_until_demo.scenario(7.22)
-        n_h = len(e034_until_demo.instance(7.22, "zone")["human_radii"])
-        programs = (workspace_program.core_program(sc, n_h),) + e040_conj.conj_programs(sc, n_h)
+        from sparsemax_dstl.tasks import panda, workspace_program, workspace_scene, workspace_warp
+        I = workspace_scene.load("examples/data/manipulator_H10.npz")
+        sc = workspace_scene.scenario(I["H"], I["wait"][0])
+        programs = (workspace_program.core_program(sc, I["n_h"]),) + workspace_program.conj_programs(sc, I["n_h"])
         sizes = [[len(p.steps), sum(st.length for st in p.steps)] for p in programs]
-        print(json.dumps([workspace_program.N_R, n_h, sizes, panda.torque_limit().tolist()]))
-    """, json.dumps(SOLVER_SCRIPTS))
-    n_r, n_h, got, torque = json.loads(out)
-    sc = e034_until_demo.scenario(7.22)
-    assert n_r == workspace_program.N_R and n_h == len(e034_until_demo.instance(7.22, "zone")["human_radii"])
-    assert got == sizes((workspace_program.core_program(sc, n_h),) + e040_conj.conj_programs(sc, n_h))
+        print(json.dumps([workspace_program.N_R, I["n_h"], sizes, panda.torque_limit().tolist(), I["hc"].tobytes().hex()]))
+    """)
+    n_r, n_h, got, torque, hc = json.loads(out)
+    I = workspace_scene.load(str(ROOT / "examples/data/manipulator_H10.npz"))
+    sc = workspace_scene.scenario(I["H"], I["wait"][0])
+    assert n_r == workspace_program.N_R and n_h == I["n_h"] and hc == I["hc"].tobytes().hex()
+    assert got == sizes((workspace_program.core_program(sc, n_h),) + workspace_program.conj_programs(sc, n_h))
     assert len(got) == 5 and min(rows for _, rows in got) > 1
     assert torque == [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
 

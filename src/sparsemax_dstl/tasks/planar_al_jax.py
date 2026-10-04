@@ -10,20 +10,17 @@ from ..stl import compile_formula
 from . import planar_disk as D
 from . import planar_disk_jax as Dj
 from . import planar_jax as P0
-from .planar_al import CW
-
-# names of the Warp evaluator's methods -> names of planar_disk_jax.matched
-JAX_NAMES = {"lse_plain": "lse_plain", "lse": "lse_sound", "gm_pm01": "gm01", "gm_pm10": "gm10", "sparsemax": "sparsemax", "exact": "exact"}
+from .planar_al import Update
 
 
 class JaxChain:
     """The unicycle rollout, the disk predicates and the JAX STL evaluator, one program per conjunct;
     forward(V) -> r at t = 0, keeping C = d r_c / d V; pullback(w) -> sum_c w_c C_c; values(Va) -> r per lane."""
 
-    def __init__(self, conjuncts, T, method, eps, z0, regions, n, trials=CW.TRIALS):
+    def __init__(self, conjuncts, T, method, eps, z0, regions, n, trials=Update.TRIALS):
         self.n, self.T, self.lanes, self.K = n, T, trials + 1, len(conjuncts)
         progs = [compile_formula(c, T, reads=[(c, [0])]) for c in conjuncts]
-        sem = Dj.matched(JAX_NAMES[method], eps)
+        sem = Dj.matched(method, eps)
         z0 = jnp.asarray(z0, jnp.float64)
         umax = jnp.asarray(D.U_MAX)
 

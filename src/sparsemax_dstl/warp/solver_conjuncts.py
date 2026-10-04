@@ -4,17 +4,17 @@ import time
 import numpy as np
 import warp as wp
 
-from . import solver as CW
 from .evaluator import Evaluator, matched_param
 from .plant import Plant
 from .predicates import Predicates
+from .solver import ARMIJO_C, EVERY, GRADIENT, MU0, REFEREE, TRACE_KEYS, TRIAL, TRIALS, al_weight, effort, multiplier, penalty, select_step
 
 
 class ConjChain:
     """solver.Chain with K programs per group, one per conjunct: forward(V) returns r (n, K), pullback(w (n, K)) runs the plant's
     backward pass once on the weighted sum over conjuncts, values(Va) returns (n, lanes, K). Groups: (method, eps, a, b, programs)."""
 
-    def __init__(self, spec_plant, sc, prog, x0, pick, handover, hc, hr, groups, trials=CW.TRIALS, device="cuda:0"):
+    def __init__(self, spec_plant, sc, prog, x0, pick, handover, hc, hr, groups, trials=TRIALS, device="cuda:0"):
         self.device = wp.get_device(device)
         self.n, self.T, self.lanes = len(x0), prog.T, trials + 1
         n, L = self.n, self.lanes
@@ -115,19 +115,19 @@ class ConjChain:
 def init_state(V0, alpha0, K):
     n = len(V0)
     f = np.float32
-    return {"V": np.asarray(V0, f), "alpha": np.full(n, alpha0, f), "nu": np.zeros((n, K), f), "mu": np.full((n, K), CW.MU0, f), "k": 0}
+    return {"V": np.asarray(V0, f), "alpha": np.full(n, alpha0, f), "nu": np.zeros((n, K), f), "mu": np.full((n, K), MU0, f), "k": 0}
 
 
-def iterate(chain, state, ex, lam, delta, c=CW.ARMIJO_C):
+def iterate(chain, state, ex, lam, delta, c=ARMIJO_C):
     """solver.iterate with one augmented Lagrangian term per conjunct. Returns the new (V, alpha), the trace row
-    (n, len(CW.TRACE_KEYS)) and the per-conjunct record: r, w, r_next, r_ref, mu, nu, (n, K) each."""
+    (n, len(TRACE_KEYS)) and the per-conjunct record: r, w, r_next, r_ref, mu, nu, (n, K) each."""
     V, alpha, nu, mu = state["V"], state["alpha"], state["nu"], state["mu"]
     n, N = V.shape[:2]
     trials = chain.lanes - 1
     r = chain.forward(V)
     s = time.perf_counter()
-    E = CW.effort(V)
-    w = CW.al_weight(r, nu, mu, delta)
+    E = effort(V)
+    w = al_weight(r, nu, mu, delta)
     L0 = lam * E + np.sum(0.5 * mu * np.maximum(0.0, delta - r + nu / mu) ** 2, -1)
     solver = time.perf_counter() - s
     pulled = chain.pullback(w)
@@ -146,7 +146,7 @@ def iterate(chain, state, ex, lam, delta, c=CW.ARMIJO_C):
     s0 = np.maximum(0.0, delta - r_ref + nu / mu)[:, None]
     st = np.maximum(0.0, delta - rt + (nu / mu)[:, None])
     dL = lam * dE + np.sum(0.5 * mu[:, None] * (st - s0) * (st + s0), -1)
-    Vn, an, j, hit, pick = CW.select_step(V, alpha, dL, g, a, Vt, c)
+    Vn, an, j, hit, pick = select_step(V, alpha, dL, g, a, Vt, c)
     rn = np.where(hit[:, None], pick(rt), r_ref)
     Ln = lam * E + np.sum(0.5 * mu * np.maximum(0.0, delta - r_ref + nu / mu) ** 2, -1) + np.where(hit, pick(dL), 0.0)
     # trace columns: rho = min_c r_c, w = sum_c w_c, mu and nu the largest over the conjuncts
@@ -160,16 +160,16 @@ def iterate(chain, state, ex, lam, delta, c=CW.ARMIJO_C):
 def block_update(state, r_start, r_end, delta):
     """solver.block_update per conjunct: r_start, r_end (n, K)."""
     nu, mu = state["nu"], state["mu"]
-    state["nu"] = CW.multiplier(nu, mu, r_end, delta).astype(np.float32)
-    state["mu"] = CW.penalty(mu, np.maximum(0.0, delta - r_start), np.maximum(0.0, delta - r_end)).astype(np.float32)
+    state["nu"] = multiplier(nu, mu, r_end, delta).astype(np.float32)
+    state["mu"] = penalty(mu, np.maximum(0.0, delta - r_start), np.maximum(0.0, delta - r_end)).astype(np.float32)
 
 
 def solve(chain, referee, state, iterations, lam, delta, ref=None, log=None, stop_certified=False):
     """solver.solve with the per-conjunct iterate and block update; returns its records plus conj, a dict of (n, iterates, K) arrays:
     r, w, r_next, r_ref, mu, nu."""
-    if iterations % CW.EVERY and not stop_certified:
+    if iterations % EVERY and not stop_certified:
         raise ValueError("iterations must be a multiple of EVERY")
-    keys = CW.GRADIENT + CW.TRIAL + CW.REFEREE + ("solver",)
+    keys = GRADIENT + TRIAL + REFEREE + ("solver",)
     t_start = time.perf_counter()
     if ref is None:
         ref = referee(state["V"])
@@ -181,10 +181,10 @@ def solve(chain, referee, state, iterations, lam, delta, ref=None, log=None, sto
         before = {k: chain.times.get(k, 0.0) + referee.times.get(k, 0.0) for k in keys}
         V, alpha, rec, conj = iterate(chain, state, rho64[-1], lam, delta)
         state["V"], state["alpha"] = V, alpha
-        if state["k"] % CW.EVERY == 0:
+        if state["k"] % EVERY == 0:
             r_start = conj["r"]
         state["k"] += 1
-        if state["k"] % CW.EVERY == 0:
+        if state["k"] % EVERY == 0:
             block_update(state, r_start, conj["r_next"], delta)
         ref = referee(V)
         rho64.append(ref[0])

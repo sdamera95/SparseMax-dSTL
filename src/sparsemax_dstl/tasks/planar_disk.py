@@ -1,9 +1,10 @@
 """Planar unicycle of Section V-A of the paper: four disk regions with one signed-distance predicate each, the
-specification of Equation (18), and the fixed trajectories S1 and S2."""
+specification of Equation (18), the fixed trajectories S1 and S2, and the exact robustness of a sequence of commands."""
 import numpy as np
 
 from ..stl import Always, And, Atom, Eventually, Not, Until
 from . import planar as P0
+from . import planar_oracle as O
 
 H = P0.H
 U_MAX = np.array([P0.V_MAX, P0.W_MAX])  # input box: |v| <= 1 m/s, |omega| <= pi/2 rad/s
@@ -93,3 +94,30 @@ def trajectories(wait, eps=0.1, depth=0.15, stand=0.23, clear=3.0, k_arc=12, dow
     timing = {"wait": wait, "eps": eps, "depth": depth * eps, "stand": stand * eps, "clear": clear * eps, "t_green": t_green,
               "a1": a1, "b1": b1, "leave": leave, "t_blue": t_blue, "a2": a2, "b2": b2, "T": T}
     return P0.inputs_from_positions(q1, Z0[2]), P0.inputs_from_positions(q2, Z0[2]), timing
+
+
+# ------------------------------------------------------------------
+# predicates, and the exact robustness of a sequence of commands
+
+def scores(xy, regions=REGIONS):
+    """Predicate values (..., T, 8) from positions (..., T, 2) and regions (4, 3)."""
+    d = np.sqrt(np.sum((xy[..., None, :] - regions[:, :2]) ** 2, -1))  # (..., T, 4)
+    x, y = xy[..., 0:1], xy[..., 1:2]
+    return np.concatenate([regions[:, 2] - d, x, 10.0 - x, y, 10.0 - y], -1)
+
+
+def summary(V, timing, eps):
+    """States of the commands V (N, 2), V = U / U_MAX, and the exact robustness with its conjuncts, clearances and effort."""
+    spec, conj, _ = specification(timing["a1"], timing["b1"], timing["a2"], timing["b2"], timing["T"])
+    z = P0.rollout(Z0, V * U_MAX)
+    S = scores(z[:, :2], REGIONS)
+    parts = [O.ev(c_, S, np.array([0]))[0] for c_ in conj]  # over the conjuncts
+    red = -S[:, 0]
+    ks = np.arange(timing["a1"], timing["b1"] + 1)
+    inner = np.minimum(S[ks, 1], np.minimum.accumulate(red)[ks])
+    t_star = ks[np.argmax(inner)]
+    return z, {"exact": float(O.ev(spec, S, np.array([0]))[0]), "until": parts[0], "blue": parts[1], "obstacle_conj": parts[2], "boundary": parts[3],
+               "deciding": ("until", "Blue", "Obstacle", "Boundary")[int(np.argmin(parts))],
+               "red_before_green": float(red[: t_star + 1].min()), "red_depth_over_eps": float(max(0.0, -red[: t_star + 1].min()) / eps),
+               "obstacle_clearance": float(np.min(-S[:, 3])), "effort_E": float(np.sum(V * V) / len(V)), "effort_J": float(0.5 * np.sum((V * U_MAX) ** 2)),
+               "v_min": float(np.min(V[:, 0] * U_MAX[0]))}

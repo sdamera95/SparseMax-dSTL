@@ -53,7 +53,8 @@ def gm_conj(x, valid, p, q):
 
 
 def reduce(z, valid, kind, sem, eps):
-    """Reduction of each row of z over its valid entries; kind is 'max' or 'min', sem a name of planar.METHODS."""
+    """Reduction of each row of z over its valid entries; kind is 'max' or 'min', sem is 'exact', 'lse_plain',
+    'sparsemax', 'gm_pm01' or 'gm_pm10'."""
     if sem == "exact":
         return np.max(np.where(valid, z, -np.inf), 1) if kind == "max" else np.min(np.where(valid, z, np.inf), 1)
     if sem == "lse_plain":
@@ -64,7 +65,7 @@ def reduce(z, valid, kind, sem, eps):
         if kind == "max":
             return qmax(z, gamma, valid)[0] + gamma / (2 * valid.sum(1))
         return -qmax(-z, gamma, valid)[0] - gamma / 2
-    p, q = {"gm01": (0.0, 1.0), "gm10": (-10.0, 10.0)}[sem]
+    p, q = {"gm_pm01": (0.0, 1.0), "gm_pm10": (-10.0, 10.0)}[sem]
     return gm_conj(z, valid, p, q) if kind == "min" else -gm_conj(-z, valid, p, q)
 
 
@@ -106,7 +107,7 @@ def until(f, S, ts, sem, eps):
     pre = np.broadcast_to(phi[:, None, :], (n_t, n_w, b + 1)).reshape(-1, b + 1)
     pv = np.broadcast_to(np.arange(b + 1)[None, None, :] <= ks[None, :, None], (n_t, n_w, b + 1)).reshape(-1, b + 1)
     ps = psi.reshape(-1)
-    if sem in ("gm01", "gm10"):
+    if sem in ("gm_pm01", "gm_pm10"):
         prefix = reduce(pre, pv, "min", sem, eps)
         inner = reduce(np.stack([ps, prefix], 1), np.ones((len(ps), 2), bool), "min", sem, eps)
     else:

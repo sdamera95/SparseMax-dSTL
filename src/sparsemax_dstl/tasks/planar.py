@@ -1,41 +1,20 @@
-"""Planar unicycle with box regions: the constants of the system, the regions, the STL specification, and the two fixed
-trajectories S1 and S2 built from smooth curves."""
+"""Planar unicycle: the sampling period, the input bounds, the rollout, and smooth curves sampled into input sequences."""
 import numpy as np
-
-from ..stl import Always, And, Atom, Eventually, Not, Until
 
 H = 0.1  # sampling period, s
 V_MAX = 1.0  # m/s
 W_MAX = np.pi / 2  # rad/s
-Z0 = (1.0, 1.0, np.pi / 2)  # start: (1, 1), facing +y
-
-# boxes (x1, x2, y1, y2), m
-RED = (4.0, 6.0, 1.5, 8.5)
-GREEN = (1.5, 3.5, 7.0, 9.0)
-BLUE = (7.5, 9.5, 1.5, 3.5)
-OBSTACLE = (6.4, 7.4, 3.9, 5.45)
-BOUNDARY = (0.0, 10.0, 0.0, 10.0)
-REGIONS = (RED, GREEN, BLUE, OBSTACLE, BOUNDARY)
-NAMES = ("Red", "Green", "Blue", "Obstacle", "Boundary")
-
 
 
 # ------------------------------------------------------------------
-# specification
+# dynamics
 
-def box(i):
-    """Region i of REGIONS as the conjunction of its predicates 4 i + j: x - x1, x2 - x, y - y1, y2 - y."""
-    return And(*(Atom(4 * i + j) for j in range(4)))
-
-
-def specification(a1, b1, a2, b2, T):
-    """(specification, its until): (not Red U_[a1, b1] Green) and F_[a2, b2] G_[0, 2/H] Blue and G not Obstacle and
-    G Boundary; intervals in samples, T samples."""
-    hold = int(round(2 / H))
-    until = Until((a1, b1), Not(box(0)), box(1))
-    spec = And(until, Eventually((a2, b2), Always((0, hold), box(2))), Always((0, T - 1), Not(box(3))),
-               Always((0, T - 1), box(4)))
-    return spec, until
+def rollout(z0, u):
+    """States (T + 1, 3) from z0 under inputs u (T, 2), unicycle with period H."""
+    th = np.cumsum(np.concatenate([[z0[2]], H * u[:, 1]]))
+    x = np.cumsum(np.concatenate([[z0[0]], H * u[:, 0] * np.cos(th[:-1])]))
+    y = np.cumsum(np.concatenate([[z0[1]], H * u[:, 0] * np.sin(th[:-1])]))
+    return np.stack([x, y, th], 1)
 
 
 # ------------------------------------------------------------------
@@ -87,57 +66,3 @@ def inputs_from_positions(p, th0):
     # the turn input of step t sets the heading of step t + 1 to that step's chord direction; step 0 moves along th0
     w = np.concatenate([[dth[0] + dth[1]], dth[2:], [0.0]]) / H
     return np.stack([v, w], 1)
-
-
-# ------------------------------------------------------------------
-# the two trajectories
-
-R_CLIP = 1.0  # radius of S1's arc at Red's edge, m
-APEX_Y = 4.6
-GREEN_STOP = (2.8, 8.0, np.pi / 3)  # position and heading of the stop in Green
-BLUE_STOP = (8.5, 2.5, -np.pi / 2)  # position and heading of the stop in Blue
-V_CRUISE = 0.8  # m/s, plateau speed of the long drives
-
-
-def trajectories(wait, depth=0.06, level=0.04, down=0.12):
-    """(u1, u2, timing): the inputs of S1 and S2 from Z0 and the specification's windows, for a wait of `wait` samples.
-    S1 enters Red by depth (m) on an arc of radius R_CLIP and waits level (m) outside; S2 drives one curve to Green."""
-    xa = 4.0 + depth
-    c = (xa - R_CLIP, APEX_Y)
-    phi_e = -np.arccos(1 - (depth + 0.15) / R_CLIP)  # the arc starts 0.15 m outside the edge
-    phi_w = np.arccos(1 - (depth + level) / R_CLIP)
-    entry = np.array(c) + R_CLIP * np.array([np.cos(phi_e), np.sin(phi_e)])
-    wait_pt = np.array(c) + R_CLIP * np.array([np.cos(phi_w), np.sin(phi_w)])
-    k = 1 / R_CLIP
-    a = np.concatenate([hermite(Z0[:2], Z0[2], 0.0, entry, phi_e + np.pi / 2, k), arc(c, R_CLIP, phi_e, phi_w)[1:]])
-    g = hermite(wait_pt, phi_w + np.pi / 2, k, GREEN_STOP[:2], GREEN_STOP[2], 0.0)
-    pa = leg(a, V_CRUISE, up=0.2, down=down)
-    pg = leg(g, V_CRUISE)
-    p1 = np.concatenate([pa, np.repeat(pa[-1:], wait - 1, 0), pg])
-    t_green = len(p1) - 1
-    a1 = t_green + 5
-    b1 = a1 + int(round(2 / H))
-    leave = b1 + 5
-    pblue = leg(sweep(), V_CRUISE)
-    t_blue = leave + len(pblue) - 1
-    a2, b2 = t_blue - 30, t_blue + 30
-    T = b2 + int(round(2 / H)) + 1
-    p1 = np.concatenate([p1, np.repeat(p1[-1:], leave - t_green, 0), pblue[1:]])
-    p1 = np.concatenate([p1, np.repeat(p1[-1:], T - len(p1), 0)])
-    p2 = leg(hermite(Z0[:2], Z0[2], 0.0, GREEN_STOP[:2], GREEN_STOP[2], 0.0), V_CRUISE)
-    p2 = np.concatenate([p2, np.repeat(p2[-1:], leave - (len(p2) - 1), 0), pblue[1:]])
-    p2 = np.concatenate([p2, np.repeat(p2[-1:], T - len(p2), 0)])
-    timing = {"wait": wait, "depth": depth, "level": level, "t_green": t_green, "a1": a1, "b1": b1,
-              "leave": leave, "t_blue": t_blue, "a2": a2, "b2": b2, "T": T}
-    return inputs_from_positions(p1, Z0[2]), inputs_from_positions(p2, Z0[2]), timing
-
-
-def sweep():
-    """Dense points of the drive from the stop in Green to the stop in Blue."""
-    return hermite(GREEN_STOP[:2], GREEN_STOP[2], 0.0, BLUE_STOP[:2], BLUE_STOP[2], 0.0, scale=1.2)
-
-
-# ------------------------------------------------------------------
-# names of the matched smoothings
-
-METHODS = ("exact", "lse_plain", "gm01", "gm10", "sparsemax")

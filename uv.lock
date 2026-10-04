@@ -1370,21 +1370,6 @@ wheels = [
 ]
 
 [[package]]
-name = "optax"
-version = "0.2.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "absl-py" },
-    { name = "jax" },
-    { name = "jaxlib" },
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8c/f9/e3d11ae6f298ee941a0690e353a323d158ba5dedc436e75621c310845c5c/optax-0.2.8.tar.gz", hash = "sha256:5b225b35066fc3eebaa4d798f1b4173b4d57d1a480610908981f8343b50af0b0", size = 301193, upload-time = "2026-03-20T23:30:05.465Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/69/6a93d8600c339d7687a05857c7907bd4dd8cf88691a5ea106d7a50af90a1/optax-0.2.8-py3-none-any.whl", hash = "sha256:e3ca2d36c99daab1800ae9dbc0545034382d6bc780b24d969e1b0df65fa31cb4", size = 402960, upload-time = "2026-03-20T23:30:03.886Z" },
-]
-
-[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1893,50 +1878,44 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-examples = [
-    { name = "jax" },
-    { name = "jax", extra = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "matplotlib" },
-    { name = "mujoco-mjx" },
-    { name = "optax" },
-    { name = "scipy" },
-]
 jax = [
     { name = "jax" },
     { name = "jax", extra = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "mujoco-mjx" },
 ]
+notebooks = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+    { name = "nbconvert" },
+]
 
 [package.dev-dependencies]
 dev = [
-    { name = "ipykernel" },
-    { name = "nbconvert" },
     { name = "pytest" },
-    { name = "sparsemax-dstl", extra = ["examples"] },
+    { name = "scipy" },
+    { name = "sparsemax-dstl", extra = ["jax", "notebooks"] },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "ipykernel", marker = "extra == 'notebooks'", specifier = ">=7.3.0" },
     { name = "jax", marker = "extra == 'jax'", specifier = ">=0.11.2" },
     { name = "jax", extras = ["cuda13"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'jax'", specifier = ">=0.11.2" },
-    { name = "matplotlib", marker = "extra == 'examples'", specifier = ">=3.11.2" },
+    { name = "matplotlib", marker = "extra == 'notebooks'", specifier = ">=3.11.2" },
     { name = "mujoco", specifier = "~=3.12.0" },
     { name = "mujoco-mjx", marker = "extra == 'jax'", specifier = "~=3.12.0" },
     { name = "mujoco-warp", git = "https://github.com/etaoxing/mujoco_warp.git?rev=357a75d60a56d67d476942a1b6e54b3045ee8e87" },
+    { name = "nbconvert", marker = "extra == 'notebooks'", specifier = ">=7.17.1" },
     { name = "numpy", specifier = ">=2.5.3" },
-    { name = "optax", marker = "extra == 'examples'", specifier = ">=0.2.8" },
-    { name = "scipy", marker = "extra == 'examples'", specifier = ">=1.18.1" },
-    { name = "sparsemax-dstl", extras = ["jax"], marker = "extra == 'examples'" },
     { name = "warp-lang", specifier = ">=1.17.0" },
 ]
-provides-extras = ["jax", "examples"]
+provides-extras = ["jax", "notebooks"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "ipykernel", specifier = ">=7.3.0" },
-    { name = "nbconvert", specifier = ">=7.17.1" },
     { name = "pytest", specifier = ">=9.1.1" },
-    { name = "sparsemax-dstl", extras = ["examples"] },
+    { name = "scipy", specifier = ">=1.18.1" },
+    { name = "sparsemax-dstl", extras = ["jax", "notebooks"] },
 ]
 
 [[package]]

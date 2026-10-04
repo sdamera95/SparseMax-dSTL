@@ -7,12 +7,12 @@ import pytest
 from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
 from sparsemax_dstl.jax import methods, read, robustness
-from sparsemax_dstl.jax.baselines import DGMSR, GILPIN
+from sparsemax_dstl.jax.baselines import SMOOTH_GM, SOFTMAX_MEAN
 from sparsemax_dstl.stl import Always, And, Atom, Eventually, Or, Release, Until, compile_formula, oracle
 from sparsemax_dstl.stl.program import locate
 
 SEMANTICS = [("exact", None), ("sparsemax", 0.5), ("lse", 4.0), (methods.SEMANTICS["sparsemax"], 0.2),
-             (methods.SEMANTICS["lse"], 0.2), (GILPIN, (5.0, 5.0)), (DGMSR, (0.05, 2.0))]
+             (methods.SEMANTICS["lse"], 0.2), (SOFTMAX_MEAN, (5.0, 5.0)), (SMOOTH_GM, (0.05, 2.0))]
 # Pruned and unpruned rows hold the same entries, so they agree to rounding in either precision.
 TOL = 1e-10 if jax.config.jax_enable_x64 else 1e-4
 

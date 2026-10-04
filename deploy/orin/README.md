@@ -25,36 +25,22 @@ Tested on a Jetson AGX Orin 64 GB with L4T R39.2.1, CUDA 13.2 and uv 0.12.12. Th
 
 ## The manipulator optimization
 
-The scene file is written by two CPU stages that use the JAX backend. Make it on a machine with the full install and copy it to the board:
+Ten updates of the optimization of Section V-B of the paper with one constraint per conjunct, from eight violating initial trajectories of the 10 s task under SparseMax at $\varepsilon = 0.2$. The trajectories are in `examples/data/manipulator_H10_w2.npz` (the pick window opens at 2 s; exact robustness $-0.05$ and $-0.10$), and `examples/manipulator.ipynb` runs the same eight on a workstation.
 
 ```bash
-mkdir -p out/starts10 out/until
-JAX_PLATFORMS=cpu uv run python -m examples.e034_until_demo starts out/starts10
-JAX_PLATFORMS=cpu uv run python -m examples.e039_person_zone setup out/starts10 examples/data/visit1.json visit_h0.45_L10.0 out/until/H10_instance.npz 2.0,4.0,6.0,7.22 0.05,0.1 lse_plain,lse,sparsemax 0.2
+uv run --locked --no-dev python deploy/orin/optimize.py
 ```
 
-On the board, ten updates of the optimization with one constraint per conjunct, on eight violating initial trajectories of the 10 s task under SparseMax at $\varepsilon = 0.2$ (runs 16 to 23 of the file, exact robustness $-0.05$ and $-0.10$):
-
-```bash
-uv run --locked --no-dev python -m examples.e040_conj run H10_instance.npz 10 out.npz 16,17,18,19,20,21,22,23
-```
-
-Each update prints the smoothed robustness and the exact robustness of every trajectory, the latter from a float64 replay with MuJoCo. After ten updates the exact robustness of the eight trajectories is between 0.17 and 0.20.
+The script prints the exact robustness of the eight trajectories before the first update and after each one, from a float64 replay with MuJoCo, then the name of the GPU and the median seconds per update by component. After ten updates the exact robustness of the eight trajectories is between 0.17 and 0.20. The number of updates is an optional argument, a multiple of ten.
 
 ## Measured
 
-One Jetson AGX Orin 64 GB against one workstation GPU (NVIDIA RTX PRO 6000 Blackwell Max-Q), the same commit and the same environment without JAX on both. A process of another project was resident on the board's GPU; it showed no load before the runs, and its share during them could not be separated.
+One Jetson AGX Orin 64 GB against one workstation GPU (NVIDIA RTX PRO 6000 Blackwell Max-Q), the same environment without JAX on both. A process of another project was resident on the board's GPU; it showed no load before the runs, and its share during them could not be separated.
 
 | | Workstation | Jetson AGX Orin |
 |---|---|---|
-| the manipulator optimization above, seconds per update | 6.7 | 9.4 |
-| of which the simulation, its reverse pass and the trial simulations | 1.18, 4.16, 1.28 | 1.53, 5.90, 1.70 |
-| of which the specification and its gradient | 0.02 | 0.11 |
-| the unicycle optimization on the Warp chain (`examples/e049_al.py ... solve warp`), CPU, float64 | 183 s | 539 s |
+| the optimization above, seconds per update | 6.7 | 9.4 |
+| of which the simulation, its reverse pass and the trial simulations (`rollout`, `plant_backward`, `trial_rollout`) | 1.18, 4.16, 1.28 | 1.53, 5.90, 1.70 |
+| of which the specification and its gradient (`stl`) | 0.02 | 0.11 |
 
-The two machines agree as follows.
-
-- Manipulator: the exact robustness differs by $2 \times 10^{-8}$ after the first update and by at most $1.2 \times 10^{-5}$ over the ten, and has the same sign on both machines after every update.
-- Unicycle, 28 optimizations of 400 updates: the exact robustness of the returned trajectories differs by at most 0.003, and its sign is the same in 27. The one that differs is a GMR $(-10, 10)$ run at margin 0 whose exact robustness is within $4 \times 10^{-4}$ of zero on both machines.
-
-With the full install (`uv sync --locked`) the test suite passes on the board: 409 tests in 34 minutes, the 8 that need a CUDA device included.
+On the two machines the exact robustness differs by $2 \times 10^{-8}$ after the first update and by at most $1.2 \times 10^{-5}$ over the ten, and has the same sign after every update.

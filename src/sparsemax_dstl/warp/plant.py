@@ -83,7 +83,7 @@ def step_backward(m, d, d_out):
     of gravity compensation through the actuators; enable() registers it as the fork's step backward."""
     bc = mjw_adjoint._ACTIVE_BACKWARD_CONTEXT.get()
     if bc is None or id(bc) not in _CONTEXTS:
-        raise RuntimeError("step backward outside mujoco_warp.backward_context(bc) with bc from warp_plant.context()")
+        raise RuntimeError("step backward outside mujoco_warp.backward_context(bc) with bc from context()")
     sc = _CONTEXTS[id(bc)]
     gravity = int(not (int(m.opt.disableflags) & DisableBit.GRAVITY))
     # before the fork's backward: the masks read d.ctrl and d_out.qfrc_gravcomp as the forward step left them

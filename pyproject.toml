@@ -21,20 +21,18 @@ jax = [
     "jax>=0.11.2",
     "mujoco-mjx~=3.12.0",
 ]
-# what the scripts in examples/ and the tests use beside both backends
-examples = [
-    "sparsemax-dstl[jax]",
+# what the notebooks in examples/ use beside the backends
+notebooks = [
+    "ipykernel>=7.3.0",
     "matplotlib>=3.11.2",
-    "optax>=0.2.8",
-    "scipy>=1.18.1",
+    "nbconvert>=7.17.1",
 ]
 
 [dependency-groups]
 dev = [
-    "ipykernel>=7.3.0",
-    "sparsemax-dstl[examples]",
+    "sparsemax-dstl[jax,notebooks]",
     "pytest>=9.1.1",
-    "nbconvert>=7.17.1",
+    "scipy>=1.18.1",
 ]
 
 [build-system]
@@ -45,7 +43,6 @@ build-backend = "hatchling.build"
 packages = ["src/sparsemax_dstl"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.uv.sources]

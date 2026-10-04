@@ -1,25 +1,12 @@
-"""The planar unicycle with box regions in JAX: the predicate values, the rollout, the smoothings matched at one
-worst-case error per node, and the value and the weights of the until."""
+"""The planar unicycle in JAX: the rollout, the smoothings matched at one worst-case error per node, and the value of
+an until on operand traces."""
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 from ..jax.evaluator import evaluate, exact_max, exact_min, gm_power, lse_min, lse_plain_max, read
 from ..jax.operators import lower_max, lower_min
-from ..stl import Atom, Not, Until, compile_formula
-from .planar import H, REGIONS, box, specification
-
-
-# ------------------------------------------------------------------
-# predicates
-
-def scores(xy):
-    """Leaf-score array (..., T, 20) of the four linear predicates of every region."""
-    x, y = xy[..., 0:1], xy[..., 1:2]
-    lo = np.array([r[0] for r in REGIONS]), np.array([r[1] for r in REGIONS])
-    yl = np.array([r[2] for r in REGIONS]), np.array([r[3] for r in REGIONS])
-    s = jnp.stack([x - lo[0], lo[1] - x, y - yl[0], yl[1] - y], -1)  # (..., T, 5, 4)
-    return s.reshape(s.shape[:-2] + (20,))
+from ..stl import Atom, Until, compile_formula
+from .planar import H
 
 
 # ------------------------------------------------------------------
@@ -53,13 +40,13 @@ def _count(z, mask):
 
 
 def matched(name, eps):
-    """(max_reduce, min_reduce) for name in 'exact', 'lse_plain', 'sparsemax', 'gm01', 'gm10'; at a node of m
+    """(max_reduce, min_reduce) for name in 'exact', 'lse_plain', 'sparsemax', 'gm_pm01', 'gm_pm10'; at a node of m
     valid entries beta = log(m) / eps and gamma = 2 eps / (1 - 1/m) (Equation (15) of the paper)."""
     if name == "exact":
         return exact_max, exact_min
-    if name == "gm01":
+    if name == "gm_pm01":
         return gm_power(0.0, 1.0)
-    if name == "gm10":
+    if name == "gm_pm10":
         return gm_power(-10.0, 10.0)
     if name == "lse_plain":
         def mx(z, param=None, mask=None):
@@ -83,28 +70,3 @@ def until_on_operands(phi, psi, a1, b1, sem):
     T = phi.shape[-1]
     prog = compile_formula(Until((a1, b1), Atom(0), Atom(1)), T, reads=[(Until((a1, b1), Atom(0), Atom(1)), [0])])
     return read(prog, evaluate(prog, jnp.stack([phi, psi], -1), sem))[..., 0]
-
-
-def operand_traces(S, sem):
-    """Traces (T,) of not Red and Green under the pair sem, from leaf scores S (T, 20)."""
-    T = S.shape[-2]
-    p1 = compile_formula(Not(box(0)), T)
-    p2 = compile_formula(box(1), T)
-    return evaluate(p1, S, sem)[-1], evaluate(p2, S, sem)[-1]
-
-
-def spec_values(S, timing, sem):
-    """(specification at t = 0, until at t = 0) under the pair sem."""
-    spec, until = specification(timing["a1"], timing["b1"], timing["a2"], timing["b2"], timing["T"])
-    prog = compile_formula(spec, timing["T"], reads=[(spec, [0]), (until, [0])])
-    out = read(prog, evaluate(prog, S, sem))
-    return out[..., 0], out[..., 1]
-
-
-def until_weight(S, timing, sem, viol):
-    """Sum over the samples in viol (bool, T) of the derivative of the until value at t = 0 with
-    respect to the value of not Red at that sample, by reverse-mode AD; also the until value."""
-    phi, psi = operand_traces(S, sem)
-    f = lambda ph: until_on_operands(ph, psi, timing["a1"], timing["b1"], sem)  # noqa: E731
-    val, g = jax.value_and_grad(f)(phi)
-    return val, jnp.sum(jnp.where(viol, g, 0.0)), g

@@ -1,5 +1,5 @@
-"""The manipulator example's plant and compiled specification: the scene's Plant, the number of spheres on the robot, and
-the program of the specification with the rows that its value at the first sample does not read removed."""
+"""The manipulator example's plant and compiled specification: the scene's Plant, the number of spheres on the robot, and the
+programs of the specification and of its four conjuncts without the rows that the value at the first sample does not read."""
 import numpy as np
 
 from .. import stl
@@ -8,6 +8,7 @@ from . import workspace as W
 
 plant = W.Plant()
 N_R = len(W.robot_spheres(plant, W.Scenario().robot_spacing)["body"])
+CONJUNCTS = ("separation", "slowdown", "order", "handover")
 
 
 def reachable(program):
@@ -59,3 +60,10 @@ def core_program(sc, n_h, pruned=True):
     """The compiled conjunction of workspace.specs for n_h human spheres, pruned by default."""
     prog = stl.compile_formula(W.specs(sc, N_R, n_h)[2], sc.samples)
     return prune(prog) if pruned else prog
+
+
+def conj_programs(sc, n_h):
+    """The four conjunct programs (pruned; the conjunct at t = 0 is the root) in CONJUNCTS order."""
+    names, rows, _ = W.specs(sc, N_R, n_h)
+    by = dict(zip(names, rows))
+    return tuple(prune(stl.compile_formula(by[c], sc.samples)) for c in CONJUNCTS)

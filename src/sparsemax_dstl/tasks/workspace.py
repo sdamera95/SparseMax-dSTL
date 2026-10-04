@@ -283,7 +283,7 @@ def until_targets(sc, direction, handover_radius):
     """(pick, handover) targets (3,) each: zone + (zone_radius + until_hold) n and zone +
     handover_radius n, n the unit vector of direction (3,) from the zone centre."""
     if sc.until_hold is None:
-        raise ValueError("until_targets needs the E034 flag Scenario.until_hold")
+        raise ValueError("until_targets needs Scenario.until_hold")
     n = np.asarray(direction, np.float64) / np.linalg.norm(direction)
     z = np.asarray(sc.zone, np.float64)
     return z + (sc.zone_radius + sc.until_hold) * n, z + handover_radius * n
@@ -293,7 +293,7 @@ def until_script(sc, person):
     """The person of UNTIL_PERSON[person] as a human.Script, standing still and facing the zone along phi = 0: "zone"
     holds the right hand at the reach target from before t = 0 past the horizon, "out" keeps it at rest."""
     if sc.until_hold is None:
-        raise ValueError("until_script needs the E034 flag Scenario.until_hold")
+        raise ValueError("until_script needs Scenario.until_hold")
     p = UNTIL_PERSON[person]
     H = float(sc.H)
     t_reach = -1.0 if p["reach"] else 2 * H
@@ -322,7 +322,7 @@ def until_work_script(sc, work):
     """The working person of the dict work (keys phi, stand, depth, reach_z, release, t_move, hover, hover_z) as a
     human.Script; the withdrawal starts release seconds after the pick window opens. Values may be arrays."""
     if sc.until_hold is None:
-        raise ValueError("until_work_script needs the E034 flag Scenario.until_hold")
+        raise ValueError("until_work_script needs Scenario.until_hold")
     w = float(sc.pick[0] * sc.H)
     tm = np.asarray(work["t_move"], np.float64)
     return Hm.Script(zone=tuple(sc.zone[:2]), zone_radius=sc.zone_radius, phi=work["phi"], stand=work["stand"], walk=0.0, t_arrive=0.5,
@@ -347,7 +347,7 @@ def until_visit_inputs(sc, visit):
     """The dict of human_inputs for the visiting person, with the plateau (v0, v1) in seconds under the key visit, for
     the dict visit (keys phi, stand, depth, reach_z, t_move, hover, hover_z, far, t_rest, length, lead)."""
     if sc.until_hold is None:
-        raise ValueError("until_visit_inputs needs the E034 flag Scenario.until_hold")
+        raise ValueError("until_visit_inputs needs Scenario.until_hold")
     w = float(sc.pick[0] * sc.H)
     tm = float(visit["t_move"])
     v1 = w + 1 - float(visit["lead"]) - tm

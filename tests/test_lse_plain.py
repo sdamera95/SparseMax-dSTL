@@ -224,7 +224,7 @@ def test_jax_warp_matched(dtype):
 
 
 def test_registries():
-    assert methods.METHODS == ("exact", "sparsemax", "lse", "gilpin", "dgmsr")
+    assert methods.METHODS == ("exact", "sparsemax", "lse", "softmax_mean", "smooth_gm")
     assert methods.MATCHED == ("sparsemax", "lse")
     prog, _ = until_case()
     assert np.array_equal(matched_param(prog, "lse_plain", EPS), matched_param(prog, "lse", EPS))

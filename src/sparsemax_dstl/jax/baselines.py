@@ -1,5 +1,5 @@
-"""Reductions reduce(z, param, mask) over the last axis of the softmax-mean measure and of the generalized
-mean-based smooth robustness D-GMSR ([7] and [12] in the paper). A row with no valid entry returns NaN."""
+"""Reductions reduce(z, param, mask) over the last axis of the softmax-mean measure and of the continuously
+differentiable generalized-mean measure ([7] and [12] in the paper). A row with no valid entry returns NaN."""
 import jax
 import jax.numpy as jnp
 
@@ -8,7 +8,7 @@ def _valid(z, mask):
     return jnp.ones(z.shape, bool) if mask is None else jnp.broadcast_to(jnp.asarray(mask, bool), z.shape)
 
 
-def gilpin_min(z, k1, mask=None):
+def softmax_mean_min(z, k1, mask=None):
     """Minimum of the softmax-mean measure, -(1/k1) log sum_i exp(-k1 z_i)."""
     z = jnp.asarray(z)
     valid = _valid(z, mask)
@@ -25,7 +25,7 @@ def gilpin_min(z, k1, mask=None):
     return jnp.where(nonempty, value, jnp.nan)
 
 
-def gilpin_max(z, k2, mask=None):
+def softmax_mean_max(z, k2, mask=None):
     """Maximum of the softmax-mean measure, sum_i z_i exp(k2 z_i) / sum_i exp(k2 z_i)."""
     z = jnp.asarray(z)
     valid = _valid(z, mask)
@@ -46,8 +46,8 @@ def _gap(log_eps, s):
     return -jnp.exp(log_eps / 2 + s) * jnp.expm1(-s)
 
 
-def dgmsr_and(z, param, mask=None):
-    """D-GMSR conjunction sqrt(M0(z_+^2)) - sqrt(Mp(z_-^2)), param = (eps, p) or (eps, p, w), W = sum_i w_i,
+def smooth_gm_and(z, param, mask=None):
+    """Conjunction of [12], sqrt(M0(z_+^2)) - sqrt(Mp(z_-^2)), param = (eps, p) or (eps, p, w), W = sum_i w_i,
     M0(x) = (eps^W + prod_i x_i^w_i)^(1/W) and Mp(x) = (eps^p + (1/W) sum_i w_i x_i^p)^(1/p)."""
     eps, p = param[0], param[1]
     w = param[2] if len(param) > 2 else None
@@ -80,13 +80,13 @@ def dgmsr_and(z, param, mask=None):
     return jnp.where(nonempty, first - second, jnp.nan)
 
 
-def dgmsr_or(z, param, mask=None):
-    """D-GMSR disjunction, -dgmsr_and(-z)."""
-    return -dgmsr_and(-jnp.asarray(z), param, mask)
+def smooth_gm_or(z, param, mask=None):
+    """Disjunction of [12], -smooth_gm_and(-z)."""
+    return -smooth_gm_and(-jnp.asarray(z), param, mask)
 
 
 # (max_reduce, min_reduce) pairs for the evaluator: param is (k1, k2) for the softmax-mean measure
-# and (eps, p) or (eps, p, w) with a scalar w for D-GMSR
-GILPIN = (lambda z, k, mask=None: gilpin_max(z, k[1], mask),
-          lambda z, k, mask=None: gilpin_min(z, k[0], mask))
-DGMSR = (dgmsr_or, dgmsr_and)
+# and (eps, p) or (eps, p, w) with a scalar w for the generalized-mean measure of [12]
+SOFTMAX_MEAN = (lambda z, k, mask=None: softmax_mean_max(z, k[1], mask),
+                lambda z, k, mask=None: softmax_mean_min(z, k[0], mask))
+SMOOTH_GM = (smooth_gm_or, smooth_gm_and)

@@ -2,11 +2,13 @@
 actuators, its collision geometry, the time grid and control initializations."""
 
 import math
+import os
 from fractions import Fraction
 from functools import cache
 
 import mujoco
 import numpy as np
+from mujoco import rollout as mj_rollout
 
 from .. import plants
 
@@ -70,6 +72,18 @@ def model_spec(timestep=DT):
 def torque_limit():
     """Upper end of every actuator's control range, (7,)."""
     return model().actuator_ctrlrange[:, 1].copy()
+
+
+def replay(V, x0):
+    """The float64 MuJoCo states (B, T, 14) at the interval boundaries under the normalized torques V (B, T - 1, 7) from
+    x0 (14,), ten physics steps per interval."""
+    mjm = model()
+    B = len(V)
+    datas = [mujoco.MjData(mjm) for _ in range(min(B, len(os.sched_getaffinity(0))))]
+    U = np.repeat(np.asarray(V, np.float64) * np.asarray(torque_limit(), np.float64), 10, axis=1)
+    state0 = np.broadcast_to(np.concatenate([[0.0], x0]), (B, 15)).copy()
+    st, _ = mj_rollout.rollout(mjm, datas, state0, U)
+    return np.concatenate([np.broadcast_to(x0, (B, 1, 14)), st[:, 9::10, 1:]], 1)
 
 
 def _body(m, name):

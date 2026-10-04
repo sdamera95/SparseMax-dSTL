@@ -38,13 +38,20 @@ uv sync
 
 `uv sync` installs the versions of `uv.lock`: Warp 1.17.0, JAX 0.11.2, MuJoCo and MJX 3.12.0, and MuJoCo Warp from the `adjoint` branch of [etaoxing/mujoco_warp](https://github.com/etaoxing/mujoco_warp) at commit `357a75d`, which adds the reverse-mode derivatives the manipulator example needs. That source is declared in `[tool.uv.sources]` of `pyproject.toml`, which `pip` does not read, so install with uv. The second command clones the Franka Panda model of MuJoCo Menagerie into `third_party/`; the manipulator example and its tests use it.
 
-`uv sync` installs both backends and what the examples and the tests use. The Warp backend alone needs no JAX:
+`uv sync` installs both backends and what the notebooks and the tests use. The Warp backend alone needs no JAX:
 
 ```bash
 uv sync --no-dev
 ```
 
-That environment holds NumPy, Warp, MuJoCo and MuJoCo Warp. `sparsemax_dstl.warp`, the specification layer and the Warp side of both examples import and run in it. The JAX backend and the MJX plant are the extra `jax` (`uv sync --no-dev --extra jax`), which installs JAX with CUDA on x86-64 Linux and for the CPU elsewhere. The optimization of the manipulator needs a CUDA GPU; everything else runs on the CPU.
+That environment holds NumPy, Warp, MuJoCo and MuJoCo Warp. `sparsemax_dstl.warp`, the specification layer and the Warp side of both examples import and run in it. Two extras add to it, as in `uv sync --no-dev --extra notebooks`:
+
+| Extra | Adds | For |
+|---|---|---|
+| `notebooks` | matplotlib and Jupyter's kernel and `nbconvert` | `examples/unicycle.ipynb` and `examples/manipulator.ipynb` |
+| `jax` | JAX, with CUDA on x86-64 Linux and for the CPU elsewhere, and MJX | the JAX backend, the MJX plant and `examples/jax_backend.ipynb` |
+
+The manipulator example needs a CUDA GPU; everything else runs on the CPU.
 
 ## Use
 
@@ -119,7 +126,6 @@ The script installs NumPy, Warp, MuJoCo and MuJoCo Warp with `uv sync --locked -
 |---|---|---|
 | one update of the manipulator optimization with one constraint per conjunct, eight trajectories, horizon 10 s | 6.7 s | 9.4 s |
 | of which the specification and its gradient | 0.02 s | 0.11 s |
-| the unicycle optimization on the Warp chain, CPU, float64 | 183 s | 539 s |
 
 Over ten updates the exact robustness of the manipulator's trajectories differs between the two machines by at most $1.2 \times 10^{-5}$ and has the same sign after every update.
 
@@ -143,20 +149,26 @@ The first satisfying update is the same on both machines, and their exact robust
 | `src/sparsemax_dstl/warp/plant.py`, `predicates.py` | the MuJoCo Warp rollout with its reverse-mode gradient, and predicates as Warp kernels |
 | `src/sparsemax_dstl/warp/solver.py`, `solver_conjuncts.py` | the first-order augmented Lagrangian solver under single shooting |
 | `src/sparsemax_dstl/tasks/` | the planar unicycle and the manipulator beside a person |
-| `examples/` | the scripts that produce the numbers of the paper's tables |
-| `deploy/orin/` | the install script for a Jetson AGX Orin, and the measurements on it |
+| `examples/` | three notebooks on the paper's examples, and the initial trajectories of the manipulator in `examples/data/` |
+| `deploy/orin/` | the install script and the optimization script for a Jetson AGX Orin, and the measurements on it |
 
 ## The paper's examples
 
-[examples/README.md](examples/README.md) lists every command, what it writes, and the table or figure it corresponds to.
+Three notebooks, stored with their outputs:
 
-| Example | In the paper | Runs on | Time |
+| Notebook | In the paper | Runs on | Time |
 |---|---|---|---|
-| Planar unicycle | Table I, Fig. 4 | CPU, float64, in JAX and in Warp | about 5 minutes |
-| Manipulator, the until conjunct on the violating initial trajectories | Table II | CPU, then one GPU stage in float32 | about 7 minutes, 2 of them on the GPU |
-| Manipulator, the optimization on the torques | Table III | one GPU, float32; the exact robustness of every iterate from a float64 replay with MuJoCo | 17, 29 and 55 minutes per file at horizons of 10, 20 and 40 s; 4.8 hours for the nine files |
+| [unicycle.ipynb](examples/unicycle.ipynb) | Planar unicycle (Section V-A): Table I and Fig. 4 | Warp, CPU, float64, no JAX | 2.5 minutes |
+| [manipulator.ipynb](examples/manipulator.ipynb) | Manipulator beside a person (Section V-B): Table II, and 20 of the 100 updates of Table III at four of its 16 pick and handover locations | Warp and MuJoCo Warp, no JAX; one CUDA GPU with 14 GB free, float32, with the exact robustness from a float64 replay with MuJoCo | 5.5 minutes |
+| [jax_backend.ipynb](examples/jax_backend.ipynb) | The unicycle's specification in the JAX evaluator, and the optimization of Table I on the JAX backend against the Warp backend | JAX and Warp, CPU, float64 | 3.5 minutes |
 
-The times are from a workstation with one NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB). The GPU stages are not bit-reproducible: two runs of the Table II stage on that GPU differ by up to $6 \times 10^{-5}$ relative in the norm of the torque gradient, and the printed table is the same.
+Open them in Jupyter or an editor with a Jupyter kernel, or execute one from the command line:
+
+```bash
+uv run jupyter nbconvert --to notebook --execute --inplace examples/unicycle.ipynb
+```
+
+The times are from a workstation with an AMD Ryzen 9 7950X and one NVIDIA RTX PRO 6000 Blackwell Max-Q (96 GB). In Table I the returned robustness is the JAX backend's; the Warp backend reproduces 31 of the table's 32 printed entries and returns $-0.0586$ where it prints $-0.058$, for the plain LSE at $c = 0$ (JAX: $-0.0584$). Runs on the GPU do not repeat bit for bit: two runs of the Table II computation on that GPU differ by up to $6 \times 10^{-5}$ relative in the norm of the torque gradient, and the printed table is the same; between two executions of the manipulator notebook the first satisfying update differed in one of the 40 runs (10 and 12).
 
 ## Tests
 
@@ -165,7 +177,7 @@ JAX_PLATFORMS=cpu uv run pytest -q --ignore=tests/test_warp_predicates.py
 JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 ```
 
-409 tests, about 7 minutes. The 8 that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
+383 tests, about 6 minutes. Those that need a CUDA device are skipped without one. `tests/test_warp_predicates.py` runs in a process of its own because it has a float32 case and other test files switch JAX to float64 for the whole process.
 
 ## References
 

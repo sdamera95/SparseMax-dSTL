@@ -31,7 +31,7 @@ def case():
 @pytest.mark.parametrize("name", ["S1", "S2"])
 def test_values_against_oracle(case, name):
     S = case[name]
-    sv, cv = Dj.values(jnp.asarray(S), case["tm"], Dj.matched("lse_sound", EPS))
+    sv, cv = Dj.values(jnp.asarray(S), case["tm"], Dj.matched("lse", EPS))
     assert abs(float(sv) - OS.ev(case["spec"], S, np.array([0]), eps=EPS)[0]) < 1e-10
     for c, v in zip(case["conj"], np.asarray(cv)):
         assert abs(float(v) - OS.ev(c, S, np.array([0]), eps=EPS)[0]) < 1e-10
@@ -43,7 +43,7 @@ def test_below_exact_within_budget(case, name):
     B = float(budget(compile_formula(case["spec"], tm["T"], reads=[(case["spec"], [0])]), lambda m, param: np.where(np.asarray(m) > 1, EPS, 0.0))[0])
     S = jnp.asarray(case[name])
     ex, _ = Dj.values(S, tm, Dj.matched("exact", EPS))
-    so, _ = Dj.values(S, tm, Dj.matched("lse_sound", EPS))
+    so, _ = Dj.values(S, tm, Dj.matched("lse", EPS))
     assert abs(B - 3 * EPS) < 1e-12
     assert float(ex) - B <= float(so) < float(ex)
 
@@ -52,7 +52,7 @@ def test_below_exact_within_budget(case, name):
 def test_plain_minus_shifts(case, name):
     S = jnp.asarray(case[name])
     sp, cp = Dj.values(S, case["tm"], Dj.matched("lse_plain", EPS))
-    ss, cs = Dj.values(S, case["tm"], Dj.matched("lse_sound", EPS))
+    ss, cs = Dj.values(S, case["tm"], Dj.matched("lse", EPS))
     cp, cs = np.asarray(cp), np.asarray(cs)
     shift = np.array([EPS, EPS, 0.0, 0.0])  # until, eventually-always Blue, always not Obstacle, always Boundary
     assert np.max(np.abs(cs - (cp - shift))) < 1e-12
@@ -71,7 +71,7 @@ def test_weight_equals_plain(case):
 
     def grad(sem):
         return jax.grad(lambda ph: P0j.until_on_operands(ph, jnp.asarray(psi), tm["a1"], tm["b1"], Dj.matched(sem, EPS)))(jnp.asarray(phi))
-    gs, gp = np.asarray(grad("lse_sound")), np.asarray(grad("lse_plain"))
+    gs, gp = np.asarray(grad("lse")), np.asarray(grad("lse_plain"))
     assert np.max(np.abs(gs - gp)) < 1e-12
     w = float(np.sum(np.where(viol, gs, 0.0)))
     f = Until((tm["a1"], tm["b1"]), Atom(0), Atom(1))
@@ -93,5 +93,5 @@ def test_chains_agree_at_guesses(case):
     assert np.max(np.abs(jc.pullback(w) - wc.pullback(w))) < 1e-12
     assert np.max(np.abs(jc.C)) > 1e-3  # the gradients compared are not all zero
     for g, name in enumerate(("S1", "S2")):
-        _, cv = Dj.values(jnp.asarray(case[name]), tm, Dj.matched("lse_sound", EPS))
+        _, cv = Dj.values(jnp.asarray(case[name]), tm, Dj.matched("lse", EPS))
         assert np.max(np.abs(r_j[g] - np.asarray(cv))) < 1e-10

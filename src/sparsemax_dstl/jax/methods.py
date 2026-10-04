@@ -5,7 +5,7 @@ import math
 import jax.numpy as jnp
 import numpy as np
 
-from .baselines import DGMSR, GILPIN
+from .baselines import SMOOTH_GM, SOFTMAX_MEAN
 from .evaluator import budget, exact_max, exact_min, gm_exp_min, gm_pm01_max, gm_pm01_min, gm_pm10_max, gm_pm10_min, lse_max, lse_min, lse_plain_max
 from .operators import lower_max, lower_min
 
@@ -107,14 +107,14 @@ SEMANTICS = {
     "exact": "exact",
     "sparsemax": (sparsemax_max, sparsemax_min),
     "lse": (lse_max_matched, lse_min_matched),
-    "gilpin": GILPIN,
-    "dgmsr": DGMSR,
+    "softmax_mean": SOFTMAX_MEAN,
+    "smooth_gm": SMOOTH_GM,
     "lse_plain": (lse_plain_max_matched, lse_min_matched),
     "gm_pm01": (gm_pm01_max, gm_pm01_min),
     "gm_pm10": (gm_pm10_max, gm_pm10_min),
     "gm_exp": (gm_exp_max_matched, gm_exp_min_matched),
 }
-METHODS = ("exact", "sparsemax", "lse", "gilpin", "dgmsr")
+METHODS = ("exact", "sparsemax", "lse", "softmax_mean", "smooth_gm")
 MATCHED = ("sparsemax", "lse")
 
 

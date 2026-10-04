@@ -1,4 +1,4 @@
-"""Tests of the scripted human's pass and wait (tasks.human), the regime instances (tasks.workspace.regime_instances) and the row pruning, node weights and blocked rollout of examples.e022_regime."""
+"""Tests of the scripted human's pass and wait (tasks.human), the instances with a pass and a wait (tasks.workspace_mjx.regime_instances) and the row pruning (tasks.workspace_program.prune)."""
 from fractions import Fraction
 
 import jax
@@ -6,12 +6,10 @@ import jax.numpy as jnp
 import numpy as np
 from mujoco import mjx
 
-from examples import e022_regime as E
 from sparsemax_dstl import jax as stl_jax
 from sparsemax_dstl import stl
 from sparsemax_dstl.jax import methods
 from sparsemax_dstl.tasks import human as Hm
-from sparsemax_dstl.tasks import panda as P
 from sparsemax_dstl.tasks import workspace as W
 from sparsemax_dstl.tasks import workspace_mjx as Wm
 from sparsemax_dstl.tasks import workspace_program as Wp
@@ -25,7 +23,7 @@ def scripted(**kw):
     return Hm.Script(**(base | kw))
 
 
-def test_new_fields_leave_the_e019_motion_unchanged():
+def test_pass_fields_leave_the_default_motion_unchanged():
     t = np.linspace(0, 16, 801)
     a = Hm.capsules(Hm.Script(), t)[0]
     b = Hm.capsules(Hm.Script(t_pass=7.0, pass_width=0.9, pass_gap=0.2, standoff=0.5, wait=9.0), t)[0]
@@ -59,11 +57,11 @@ def test_pass_and_wait_attain_their_distances_at_the_stated_times():
     np.testing.assert_allclose(both[1], one, atol=1e-15)
 
 
-def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
+def test_regime_instances_have_the_designed_margins_and_pass_the_separation_filter():
     """Two instances in float64: the anchor pair's margins at t_pass and over the hold, the clearance of every pair at the three configurations, and the candidates against those of Wm._instances."""
     H = Fraction(8)
-    sc = E.scenario(8)
-    rg = E.ranges(0.5)
+    sc = W.Scenario(H=H, pick=(2 / H, 4 / H), handover=(Fraction(24, 5) / H, Fraction(32, 5) / H), dwell=Fraction(4, 5) / H)
+    rg = dict(W.REGIME_RANGES, wait=(0.5, 0.5))
     I = Wm.regime_instances(W.TUNING_SEED, 2, sc, rg)
     rs = W.robot_spheres(PLANT, sc.robot_spacing)
     with jax.enable_x64(True):
@@ -93,10 +91,10 @@ def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
             mk = (dk - Rp) / Rp
             other = np.where((episode[sel][:, None, None] & arm[None, None]), np.inf, mk)
             assert other.min() >= I["regime"]["standoff_margin"][i] + W.REGIME_CLEAR - 1e-12
-    E019 = Wm._instances(W.TUNING_SEED, sc, PLANT)
+    plain = Wm._instances(W.TUNING_SEED, sc, PLANT)
     cand = Wm._regime_candidates(W.TUNING_SEED, sc, PLANT)
-    np.testing.assert_array_equal(cand["q0"][E019["candidate"]], E019["q0"])
-    np.testing.assert_array_equal(cand["Qg"][E019["candidate"], 1], E019["q_handover"])
+    np.testing.assert_array_equal(cand["q0"][plain["candidate"]], plain["q0"])
+    np.testing.assert_array_equal(cand["Qg"][plain["candidate"], 1], plain["q_handover"])
     assert I["candidate"].tolist() == sorted(I["candidate"].tolist())
 
 
@@ -119,38 +117,3 @@ def test_pruned_program_keeps_the_root_value_and_gradient():
                 (a, ga), (b, gb) = f(pr), f(full)
                 assert float(a) == float(b)
                 np.testing.assert_allclose(np.asarray(ga), np.asarray(gb), rtol=0, atol=1e-14)
-
-
-def test_node_weights_are_the_matched_reductions_gradients():
-    """float64: node_row's sparsemax support mass and lse mass equal those of jax.grad of the matched reductions in sparsemax_dstl.jax.methods, at a minimum and a maximum node."""
-    rng = np.random.default_rng(1)
-    x = rng.normal(0, 0.3, 40)
-    x[5] = x.min() - 0.05
-    T = 40
-    for kind in ("min", "max"):
-        for eps in E.EPS:
-            row = E.node_row(x, kind, eps, T, np.arange(T) < 10, np.arange(T) >= 30)
-            with jax.enable_x64(True):
-                fq = methods.sparsemax_min if kind == "min" else methods.sparsemax_max
-                fl = methods.lse_min_matched if kind == "min" else methods.lse_max_matched
-                p = np.asarray(jax.grad(lambda z: fq(z, eps))(jnp.asarray(x)))
-                q = np.asarray(jax.grad(lambda z: fl(z, eps))(jnp.asarray(x)))
-            S = p > 0
-            assert row["k"] == S.sum() and abs(row["W_L"] - q[S].sum()) < 1e-12
-            assert abs(row["WQ_pass"] - p[:10].sum()) < 1e-12 and abs(row["WL_wait"] - q[30:].sum()) < 1e-12
-
-
-def test_blocked_rollout_equals_physics_rollout():
-    """float64, 2 s (100 intervals, 2 blocks): states equal to 1e-12 and the gradient of a state
-    functional to 1e-9 relative."""
-    I = Wm.regime_instances(W.TUNING_SEED, 1, E.scenario(8), E.ranges(0.5))
-    with jax.enable_x64(True):
-        mx = mjx.put_model(PLANT.model, impl="jax")
-        x0 = jnp.asarray(np.concatenate([I["q0"][0], np.zeros(7)]))
-        U = jnp.asarray(E.random_start(3, 100)) * jnp.asarray(P.torque_limit())
-        a = E.rollout(mx, 10, x0, U)
-        b = Wm.physics_rollout(mx, 10, x0, U)
-        np.testing.assert_allclose(np.asarray(a), np.asarray(b), rtol=0, atol=1e-12)
-        f = lambda roll: jax.grad(lambda U: jnp.sum(jnp.sin(roll(mx, 10, x0, U)[::10])))(U)
-        ga, gb = np.asarray(f(E.rollout)), np.asarray(f(Wm.physics_rollout))
-    assert np.abs(ga - gb).max() <= 1e-9 * np.abs(gb).max()
