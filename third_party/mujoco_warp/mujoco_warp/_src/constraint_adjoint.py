@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+# Modified from the adjoint fork at commit 357a75d: a contact enters the backward when any of its rows is active.
 """Constraint residual VJP kernels (non-contact and contact efc rows) for the IFT backward."""
 
 import warp as wp
@@ -31,6 +32,20 @@ wp.set_module_options({"enable_backward": True})
 
 _MAXCONDIM = 6  # max valid MuJoCo condim; elliptic friction rows = dimid 1..condim-1
 _MAX_PYRAMID_EDGES = 10  # 2*(_MAXCONDIM - 1) pyramidal edges at condim 6
+
+
+@wp.func
+def _contact_active(efc_state_in: wp.array2d[int], contact_efc_address_in: wp.array2d[int], w: int, cid: int) -> bool:
+  """True when any constraint row of contact cid is not SATISFIED.
+
+  With a pyramidal cone the rows of one contact have independent states."""
+  for e in range(_MAX_PYRAMID_EDGES):
+    if e < contact_efc_address_in.shape[1]:
+      ea = contact_efc_address_in[cid, e]
+      if ea >= 0:
+        if efc_state_in[w, ea] != ConstraintState.SATISFIED:
+          return True
+  return False
 
 
 # Non-contact constraint residual VJP (equality / joint-limit / dof-friction rows), orchestrated by
@@ -331,7 +346,7 @@ def _contact_gather(
   e0 = contact_efc_address_in[cid, 0]
   if e0 < 0:
     return
-  if efc_state_in[w, e0] == ConstraintState.SATISFIED:
+  if not _contact_active(efc_state_in, contact_efc_address_in, w, cid):
     return
   geom = contact_geom_in[cid]
   if geom[0] < 0 or geom[1] < 0:  # flex (negative geom ids): unsupported
@@ -416,7 +431,7 @@ def _contact_phi(cone_type: int):
     if e0 < 0:
       return
     st = efc_state_in[w, e0]
-    if st == ConstraintState.SATISFIED:
+    if not _contact_active(efc_state_in, contact_efc_address_in, w, cid):
       return
     dt = opt_timestep[w % opt_timestep.shape[0]]
     imp_isq = opt_impratio_invsqrt[w % opt_impratio_invsqrt.shape[0]]
@@ -536,7 +551,7 @@ def _contact_scatter(geom_friction_grad: bool):
     e0 = contact_efc_address_in[cid, 0]
     if e0 < 0:
       return
-    if efc_state_in[w, e0] == ConstraintState.SATISFIED:
+    if not _contact_active(efc_state_in, contact_efc_address_in, w, cid):
       return
     geom = contact_geom_in[cid]
     if geom[0] < 0 or geom[1] < 0:
