@@ -12,6 +12,10 @@ build/
 dist/
 
 # Fetched models and run output
-third_party/
+third_party/*
+!third_party/mujoco_warp/
 out/
 *.npz
+
+# The data the notebooks read
+!examples/data/*.npz
