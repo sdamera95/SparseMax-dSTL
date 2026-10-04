@@ -1,8 +1,5 @@
-"""MuJoCo models of the examples: the Franka Panda and a sliding block.
-
-The Panda comes from MuJoCo Menagerie at MENAGERIE_COMMIT. scripts/fetch_menagerie.sh fetches it
-into third_party/ of a source checkout; MUJOCO_MENAGERIE names another copy.
-"""
+"""MuJoCo models of the examples: a sliding block and the Franka Panda of MuJoCo Menagerie, read
+from third_party/ (scripts/fetch_menagerie.sh fetches it) or from the path MUJOCO_MENAGERIE."""
 
 import os
 from pathlib import Path
@@ -15,12 +12,8 @@ MENAGERIE = Path(os.environ.get("MUJOCO_MENAGERIE", Path(__file__).resolve().par
 
 
 def panda(contacts=True):
-    """Franka Emika Panda without its hand, driven by joint torques.
-
-    Menagerie's position actuators become torque motors whose control limits are Menagerie's
-    force ranges. Joint limits are kept. contacts=False clears contype and conaffinity on every
-    geom, which leaves only the joint-limit constraint rows; tests use it to isolate them.
-    """
+    """The Panda without its hand, driven by joint torques within Menagerie's force ranges.
+    contacts=False clears contype and conaffinity on every geom."""
     return panda_spec(contacts).compile()
 
 
@@ -61,8 +54,5 @@ SLIDING_BLOCK = """
 
 
 def sliding_block():
-    """A 1 kg box resting on a frictional plane, pushed along x by a force motor.
-
-    Gravity keeps the box on the plane, so its contact constraint rows stay present.
-    """
+    """A 1 kg box resting on a frictional plane, pushed along x by a force motor."""
     return mujoco.MjModel.from_xml_string(SLIDING_BLOCK)

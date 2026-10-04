@@ -1,3 +1,4 @@
+"""Tests of reverse- and forward-mode derivatives of the JAX evaluator against closed forms and across batching."""
 import jax
 import jax.numpy as jnp
 import numpy as np

@@ -1,7 +1,4 @@
-"""E045: the weight sums of the Until's gradient (examples.e045_two_properties.sums) and the theory's closed forms
-(predict) against reverse-mode automatic differentiation of the implemented semantics, on a small synthetic signal
-with known weights: clear is 0.3, negative on k samples before the window, and at a gap above 0 on the hold samples;
-pick is 0.5. The window holds J = 6 witnesses."""
+"""Weight sums of the Until's gradient and their closed forms (examples.e045_two_properties) against reverse-mode automatic differentiation."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -20,6 +17,7 @@ HOLD = np.arange(T) >= 10
 
 
 def signal(depths, gap):
+    """Signal (1, T, 3): column 0 is 0.5, column 2 is 0.3 with -depths from sample 3 and gap from sample 10."""
     c = np.full(T, 0.3)
     c[10:] = gap
     c[3:3 + len(depths)] = -np.asarray(depths)

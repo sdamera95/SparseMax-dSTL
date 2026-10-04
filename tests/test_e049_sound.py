@@ -1,15 +1,4 @@
-"""E049 round 3: the sound log-sum-exp arm of the disk-region example (planar_disk.matched('lse_sound'), Warp 'lse').
-
-- its value of the STL specification and of each conjunct on S1 and S2 against the NumPy evaluation from the
-  definition (planar_oracle_sound);
-- below the exact robustness and above it minus the budget (eps per node along the deepest path) on S1 and S2;
-- equal to the plain log-sum-exp minus the shift log(m)/beta = eps at the until's maximum and at the eventually
-  of Blue, with the top conjunction the log-sum-exp minimum of the shifted conjuncts;
-- its AD weight on S1's samples inside Red equal to the plain log-sum-exp's, and equal to a central finite
-  difference of the NumPy evaluation (a test check only);
-- the JAX chain and the Warp chain (float64, CPU) equal at the two initial guesses S1 and S2, values and
-  pullback; the JAX chain's values equal planar_disk.values.
-"""
+"""Tests of the sound log-sum-exp on the disk-region example against the NumPy oracle, the plain log-sum-exp and the Warp chain."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -44,7 +33,7 @@ def test_values_against_oracle(case, name):
     S = case[name]
     sv, cv = Dj.values(jnp.asarray(S), case["tm"], Dj.matched("lse_sound", EPS))
     assert abs(float(sv) - OS.ev(case["spec"], S, np.array([0]), eps=EPS)[0]) < 1e-10
-    for c, v in zip(case["conj"], np.asarray(cv)):  # over the conjuncts
+    for c, v in zip(case["conj"], np.asarray(cv)):
         assert abs(float(v) - OS.ev(c, S, np.array([0]), eps=EPS)[0]) < 1e-10
 
 
@@ -90,7 +79,7 @@ def test_weight_equals_plain(case):
     up = OS.ev(f, np.stack([phi + h * viol, psi], 1), np.array([0]), eps=EPS)[0]
     dn = OS.ev(f, np.stack([phi - h * viol, psi], 1), np.array([0]), eps=EPS)[0]
     assert abs(w - (up - dn) / (2 * h)) < 1e-6
-    assert 0.6 < w < 0.75  # 0.682 at the 3 s stop (round 2's plain LSE)
+    assert 0.6 < w < 0.75
 
 
 def test_chains_agree_at_guesses(case):

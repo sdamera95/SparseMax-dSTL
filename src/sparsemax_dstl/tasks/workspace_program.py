@@ -24,7 +24,7 @@ def reachable(program):
         hit = np.zeros(sum(sizes), bool)
         hit[step.index[reach[s][:, None] & valid]] = True
         offsets = np.cumsum([0] + sizes)
-        for j, a, b in zip(step.sources, offsets[:-1], offsets[1:]):  # over a step's children
+        for j, a, b in zip(step.sources, offsets[:-1], offsets[1:]):
             reach[j] |= hit[a:b]
     return reach
 
@@ -56,5 +56,6 @@ def prune(program):
 
 
 def core_program(sc, n_h, pruned=True):
+    """The compiled conjunction of workspace.specs for n_h human spheres, pruned by default."""
     prog = stl.compile_formula(W.specs(sc, N_R, n_h)[2], sc.samples)
     return prune(prog) if pruned else prog

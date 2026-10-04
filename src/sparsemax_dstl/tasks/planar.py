@@ -1,36 +1,5 @@
-"""Planar unicycle example of E049: the system, the regions, the STL specification and the two
-fixed trajectories S1 and S2, and the smoothings matched at one worst-case error per node.
-
-System (sampling period $h$ in seconds, state $(x, y, \\theta)$, input $(v, \\omega)$):
-
-    $x^+ = x + h v \\cos\\theta$, $y^+ = y + h v \\sin\\theta$, $\\theta^+ = \\theta + h \\omega$,
-    $|v| \\le$ V_MAX, $|\\omega| \\le$ W_MAX.
-
-Regions are axis-aligned boxes $[x_1, x_2] \\times [y_1, y_2]$ written as the conjunction of the four
-linear predicates $x - x_1$, $x_2 - x$, $y - y_1$, $y_2 - y$ (each $\\ge 0$), as in Example 4 of
-Mehdipour, Vasile and Belta (IEEE TAC 70(3), 2025). Predicate $4 i + j$ is side $j$ of region $i$ in
-the order RED, GREEN, BLUE, OBSTACLE, BOUNDARY.
-
-Specification (intervals in samples):
-
-    $(\\neg \\mathrm{Red}\\ U_{[a_1, b_1]}\\ \\mathrm{Green}) \\wedge F_{[a_2, b_2]} G_{[0, 2/h]} \\mathrm{Blue}
-     \\wedge G_{[0, T-1]} \\neg \\mathrm{Obstacle} \\wedge G_{[0, T-1]} \\mathrm{Boundary}$,
-
-in words: stay out of Red until Green has been visited within $[a_1, b_1]$; be in Blue for 2 s
-starting within $[a_2, b_2]$; never enter the Obstacle; stay inside the workspace.
-
-Trajectories are smooth curves (quintic Hermite pieces and circular arcs joined with equal
-position, heading and curvature) sampled with smooth rest-to-rest speed profiles; the inputs are
-the speed and turn rate that move the unicycle through those samples (the heading of each moving
-step is its chord direction), so simulating them reproduces the samples. The forward speed is
-never negative, there is no turn in place, and every input lies in the box.
-
-Matched smoothings (`matched`): at a node whose row has $m$ valid entries the plain log-sum-exp
-uses $\\beta = \\log m / \\varepsilon$ and the sparsemax extrema use
-$\\gamma = 2 \\varepsilon / (1 - 1/m)$, so that each node's worst-case error is $\\varepsilon$; a row
-with one entry is exact under both. The generalized-mean robustness of order $(p, q)$ is
-`semantics.gm_power(p, q)` unchanged; it has no error parameter.
-"""
+"""Planar unicycle with box regions: the constants of the system, the regions, the STL specification, and the two fixed
+trajectories S1 and S2 built from smooth curves."""
 import numpy as np
 
 from ..stl import Always, And, Atom, Eventually, Not, Until
@@ -40,6 +9,7 @@ V_MAX = 1.0  # m/s
 W_MAX = np.pi / 2  # rad/s
 Z0 = (1.0, 1.0, np.pi / 2)  # start: (1, 1), facing +y
 
+# boxes (x1, x2, y1, y2), m
 RED = (4.0, 6.0, 1.5, 8.5)
 GREEN = (1.5, 3.5, 7.0, 9.0)
 BLUE = (7.5, 9.5, 1.5, 3.5)
@@ -54,11 +24,13 @@ NAMES = ("Red", "Green", "Blue", "Obstacle", "Boundary")
 # specification
 
 def box(i):
-    return And(*(Atom(4 * i + j) for j in range(4)))  # formula structure
+    """Region i of REGIONS as the conjunction of its predicates 4 i + j: x - x1, x2 - x, y - y1, y2 - y."""
+    return And(*(Atom(4 * i + j) for j in range(4)))
 
 
 def specification(a1, b1, a2, b2, T):
-    """The STL specification and its until subformula; intervals in samples, T samples."""
+    """(specification, its until): (not Red U_[a1, b1] Green) and F_[a2, b2] G_[0, 2/H] Blue and G not Obstacle and
+    G Boundary; intervals in samples, T samples."""
     hold = int(round(2 / H))
     until = Until((a1, b1), Not(box(0)), box(1))
     spec = And(until, Eventually((a2, b2), Always((0, hold), box(2))), Always((0, T - 1), Not(box(3))),
@@ -70,9 +42,8 @@ def specification(a1, b1, a2, b2, T):
 # smooth paths: pieces with matched position, heading and curvature at every junction
 
 def hermite(p0, th0, k0, p1, th1, k1, scale=1.0, n=4000):
-    """Quintic Hermite curve from (p0, heading th0, curvature k0) to (p1, th1, k1), dense points (n, 2).
-    The end derivatives are L T and L^2 k N (T the unit tangent, N the left normal, L = scale times the
-    chord), so heading and curvature match the given values at both ends."""
+    """Quintic Hermite curve from (p0, heading th0, curvature k0) to (p1, th1, k1), dense points (n, 2). The end
+    derivatives are L T and L^2 k N (T the unit tangent, N the left normal, L = scale times the chord)."""
     p0, p1 = np.asarray(p0, float), np.asarray(p1, float)
     L = scale * np.hypot(*(p1 - p0))
     t0, t1 = np.array([np.cos(th0), np.sin(th0)]), np.array([np.cos(th1), np.sin(th1)])
@@ -90,9 +61,8 @@ def arc(center, radius, phi0, phi1, n=4000):
 
 
 def leg(points, v_peak, up=0.3, down=0.3):
-    """Positions at the samples along the dense polyline points, from rest to rest. The speed profile is
-    a plateau at about v_peak (m/s) with smoothstep ramps over the fractions up and down of the leg's
-    duration; the number of steps is the smallest that keeps the plateau at or below v_peak."""
+    """Positions at the samples along the dense polyline points, from rest to rest: a speed plateau at about v_peak
+    (m/s) with smoothstep ramps over the fractions up and down of the leg's duration."""
     seg = np.hypot(*np.diff(points, axis=0).T)
     s_dense = np.concatenate([[0.0], np.cumsum(seg)])
     n = int(np.ceil(s_dense[-1] / (v_peak * H * (1 - (up + down) / 2))))
@@ -114,8 +84,7 @@ def inputs_from_positions(p, th0):
     th = np.where(idx >= 0, ang[np.maximum(idx, 0)], th0)
     th = np.concatenate([[th0], th])
     dth = (np.diff(th) + np.pi) % (2 * np.pi) - np.pi
-    # th[t + 1] is the heading step t needs; the turn input of step t sets the heading of step t + 1, so the
-    # heading equals every chord direction from step 1 on (step 0 uses th0, the start heading)
+    # the turn input of step t sets the heading of step t + 1 to that step's chord direction; step 0 moves along th0
     w = np.concatenate([[dth[0] + dth[1]], dth[2:], [0.0]]) / H
     return np.stack([v, w], 1)
 
@@ -131,17 +100,8 @@ V_CRUISE = 0.8  # m/s, plateau speed of the long drives
 
 
 def trajectories(wait, depth=0.06, level=0.04, down=0.12):
-    """S1, S2 and the specification's timing for one length of the wait (samples standing at the wait spot).
-
-    S1 starts at (1, 1) facing +y, drives a gentle S-curve towards Red's left edge and enters Red on a
-    circular arc of radius R_CLIP that touches the line x = 4 + depth at y = APEX_Y; it continues on the
-    same arc out of Red, slowing over the last fraction down of the drive, and comes to rest where the
-    arc is level metres outside the edge; it stands there for wait samples; it drives an S-curve to its stop in Green
-    (facing north-east), stands there until 0.5 s after Green's window closes, and sweeps clockwise over
-    the top of Red and down to its stop in Blue, passing the Obstacle's upper-right corner. S2 drives a
-    gentle curve from the start to the same stop in Green, stands there for the same time, and drives
-    the same sweep to Blue. Green's window opens 0.5 s after S1 reaches Green and lasts 2 s; Blue's
-    start window is the 6 s centred on the arrival in Blue. Returns (u1, u2, timing); both start from Z0."""
+    """(u1, u2, timing): the inputs of S1 and S2 from Z0 and the specification's windows, for a wait of `wait` samples.
+    S1 enters Red by depth (m) on an arc of radius R_CLIP and waits level (m) outside; S2 drives one curve to Green."""
     xa = 4.0 + depth
     c = (xa - R_CLIP, APEX_Y)
     phi_e = -np.arccos(1 - (depth + 0.15) / R_CLIP)  # the arc starts 0.15 m outside the edge

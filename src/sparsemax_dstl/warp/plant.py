@@ -1,57 +1,5 @@
-"""The Panda through the MuJoCo-Warp adjoint fork: a taped rollout with CUDA-graph steps (E027).
-
-The plant is the etaoxing mujoco_warp adjoint fork, the project's mujoco-warp (pyproject
-[tool.uv.sources], the clone third_party/mujoco_warp_adjoint at 357a75d). Under a wp.Tape its
-out-of-place step(m, d, d_out) records one analytic adjoint: the implicit function theorem at
-the converged constraint solve (H lam = adj qacc, one Cholesky solve) and hand-written adjoints
-of the smooth dynamics and of the Euler and implicitfast integrators (fork
-mujoco_warp/_src/adjoint.py). The model is tasks.panda.model() unchanged: gravity compensation
-through the actuators, joint-level actuator force ranges, joint limits, 2 ms physics,
-implicitfast, Newton.
-
-THE TWO LEAVES THIS MODULE SUPPLIES. The fork refuses gravity compensation routed through the
-actuators (fork smooth_adjoint.py:80-81, "gravcomp routed to an actuator (jnt_actgravcomp;
-force-limit clamp)"), which is how the task model applies it, and its control adjoint
-(forward_adjoint.py:117-134) is gain * moment . lam without the clamps. For a joint j driven by
-its own actuator a (gear 1, fixed gain g, no bias; checked by supported()), MuJoCo applies at
-every physics step (MuJoCo C engine_forward.c mj_fwdActuation, fork forward.py:1235-1263)
-
-    tau_j = clip(clip(g clip(u_a, ctrlrange), forcerange) + tau_g,j(q), actfrcrange) = clip(s_j, actfrcrange),
-
-so, with lam the adjoint of the generalized force that the fork's backward already solves for
-(the leaf its own control adjoint reads),
-
-    adj u_a  = g lam_j 1[u_a inside ctrlrange] 1[g u_a inside forcerange] 1[s_j inside actfrcrange],
-    adj q   += (d tau_g / d q)^T (lam * 1[s inside actfrcrange]).
-
-step_backward() below runs the fork's own step backward, then multiplies the fork's control
-adjoint by the indicator and adds the position term through the fork's own passive-gravcomp
-leaf (smooth_adjoint.gravcomp_qpos_vjp) with the masked lam, on a model view whose
-jnt_actgravcomp is zero so that the leaf seeds every dof. The fork's support check runs on that
-view, so every other unsupported-feature check still applies, and the task model is then
-registered as supported. Nothing in the fork is edited.
-
-Boundary convention (a choice: at a clamp boundary the derivative does not exist): a clamp is
-active only strictly outside its range. A command exactly at its bound, where the box of the
-normalized controls puts it, gets the derivative from inside the range. MJX's jnp.clip gives 1/2
-per clip at a tie instead.
-
-ROLLOUT. Plant(B, T_max) holds B worlds. rollout(x0 (B, 14), V (B, T, 7)) applies u = V u_max
-(V in the pilot's normalized units, u_max = tasks.panda.torque_limit()) held over n_sub physics
-steps per interval and returns the states X (B, T + 1, 14) at the interval boundaries. As in
-tasks.panda.interval_map, the solver warm start is zero at the start of every interval and
-carried across its substeps, so the rollout is the composition of the interval map f_h(x, u).
-vjp(C (B, T + 1, 14)) returns (gV (B, T, 7), gx0 (B, 14)), the vector-Jacobian product of the
-last rollout for the state cotangents C.
-
-The forward stores (qpos, qvel, qacc_warmstart) before every physics step. The backward
-restores step k, re-runs it on a fresh wp.Tape and back-propagates the running state cotangent
-(checkpointing of every physics step, as the fork's contrib/diffsim/_rollout.py and grip-mppi's
-newton_grad.rollout do). The step index lives in a device counter, so one forward step and one
-backward step are each a fixed launch sequence, captured once as a CUDA graph and replayed; the
-Python loops replay graphs, one launch per physics step, and run no numerics. The pattern is
-adapted from grip-mppi src/grip/newton_grad/rollout.py (branch fork-adjoint, BSD-3), not imported.
-"""
+"""Batched rollout of a torque-driven MuJoCo model and its vector-Jacobian product on the mujoco_warp adjoint
+fork, with the adjoints of the actuator clamps and of gravity compensation applied through the actuators."""
 
 import dataclasses
 
@@ -69,11 +17,11 @@ from mujoco_warp._src.types import BiasType, DisableBit, DynType, GainType, Join
 NJMAX = 32
 NCONMAX = 8
 _ENABLED = {"done": False}
-_CONTEXTS = {}  # id(BackwardContext) -> the leaves' scratch arrays and model view
+_CONTEXTS = {}  # id(BackwardContext) -> scratch arrays and model view of step_backward
 
 
 # ------------------------------------------------------------------
-# the leaves
+# adjoints of the actuator clamps and of gravity compensation through the actuators
 
 @wp.kernel(enable_backward=False)
 def _clamp_masks(
@@ -82,6 +30,8 @@ def _clamp_masks(
     dof_jntid: wp.array(dtype=int), jnt_actfrclimited: wp.array(dtype=bool), jnt_actfrcrange: wp.array2d(dtype=wp.vec2),
     jnt_actgravcomp: wp.array(dtype=int), gravity_enabled: int, ctrl: wp.array2d(dtype=float),
     qfrc_gravcomp: wp.array2d(dtype=float), cmask: wp.array2d(dtype=float), jmask: wp.array2d(dtype=float)):
+    # cmask[w, a] = 1 when the control, the actuator force and the joint's total actuator force (with gravity
+    # compensation) all lie inside their ranges, bounds included; jmask[w, i] is the last of the three tests
     w, a = wp.tid()
     i = act_dof[a]
     j = dof_jntid[i]
@@ -129,15 +79,14 @@ def _sub(x: wp.array2d(dtype=float), y: wp.array2d(dtype=float)):
 
 
 def step_backward(m, d, d_out):
-    """The fork's step backward plus the actuator gravity-compensation and clamp leaves (module
-    docstring). Registered for every taped out-of-place step by enable()."""
+    """The fork's step backward, then the control adjoint masked by the actuator clamps and the qpos adjoint
+    of gravity compensation through the actuators; enable() registers it as the fork's step backward."""
     bc = mjw_adjoint._ACTIVE_BACKWARD_CONTEXT.get()
     if bc is None or id(bc) not in _CONTEXTS:
         raise RuntimeError("step backward outside mujoco_warp.backward_context(bc) with bc from warp_plant.context()")
     sc = _CONTEXTS[id(bc)]
     gravity = int(not (int(m.opt.disableflags) & DisableBit.GRAVITY))
-    # the masks read the step's input state: d.ctrl and d_out.qfrc_gravcomp (computed at d's
-    # configuration by the step's forward), before any adjoint launch touches d_out
+    # before the fork's backward: the masks read d.ctrl and d_out.qfrc_gravcomp as the forward step left them
     wp.launch(_clamp_masks, dim=(d.nworld, m.nu),
               inputs=[m.actuator_ctrllimited, m.actuator_ctrlrange, m.actuator_forcelimited, m.actuator_forcerange,
                       m.actuator_gainprm, sc["act_dof"], m.dof_jntid, m.jnt_actfrclimited, m.jnt_actfrcrange,
@@ -146,6 +95,8 @@ def step_backward(m, d, d_out):
     mjw_adjoint.step_backward(m, d, d_out, bc)
     lam = bc.solver_ctx.search
     wp.launch(_mask_lam, dim=(d.nworld, m.nv), inputs=[lam, sc["jmask"]], outputs=[sc["lam"]])
+    # qpos.grad += d(lam . qfrc_gravcomp) / d qpos with lam masked by jmask; model_view has jnt_actgravcomp
+    # zeroed so that gravcomp_qpos_vjp covers every dof
     view = dataclasses.replace(d_out, qpos=d.qpos, qvel=d.qvel)
     res = smooth_adjoint.gravcomp_qpos_vjp(sc["model_view"], view, sc["lam"], bc=bc)
     wp.launch(_sub, dim=d.qpos.shape, inputs=[d.qpos.grad, res])
@@ -153,25 +104,21 @@ def step_backward(m, d, d_out):
 
 
 def enable():
-    """Turn on the fork's analytic backward with this module's step backward (idempotent).
-
-    mujoco_warp.enable_grad() rebinds wp.sqrt process-wide and registers quaternion adjoints;
-    both change the content hash of Warp modules declared afterwards, so modules loaded before
-    the call are unloaded and reload consistently on next use (grip-mppi E014)."""
+    """Switch on the fork's reverse mode with this module's step backward (idempotent)."""
     if _ENABLED["done"]:
         return
     from warp._src import context as wp_context
     mjw.enable_grad()
     mjw_forward.register_step_backward(step_backward, mjw_adjoint.step_backward_arrays)
+    # enable_grad() rebinds wp.sqrt, so the modules loaded before it are unloaded and rebuild on next use
     for mod in [mod for mod in wp_context.user_modules.values() if getattr(mod, "execs", None)]:
         mod.unload()
     _ENABLED["done"] = True
 
 
 def supported(mjm, m):
-    """Check the model against the fork's support test with jnt_actgravcomp zeroed (every other
-    test of the fork applies) and against what step_backward's leaves assume; register m with
-    the fork's support cache. Returns (the model view the gravcomp leaf uses, actuator -> dof)."""
+    """Check the model against the assumptions of step_backward and against the fork's support test with
+    jnt_actgravcomp zeroed, and mark it supported. Returns the zeroed model view and each actuator's dof."""
     if mjm.nu != mjm.nv:
         raise NotImplementedError("one actuator per dof expected")
     if np.any(mjm.actuator_trntype != TrnType.JOINT) or np.any(mjm.actuator_gaintype != GainType.FIXED) \
@@ -192,7 +139,7 @@ def supported(mjm, m):
 
 
 def context(mjm, m, d):
-    """mujoco_warp.create_backward_context plus this module's scratch for the leaves."""
+    """mujoco_warp.create_backward_context plus the scratch arrays of step_backward."""
     view, act_dof = supported(mjm, m)
     bc = mjw.create_backward_context(m, d)
     _CONTEXTS[id(bc)] = {"model_view": view, "act_dof": wp.array(act_dof.astype(np.int32), dtype=int),
@@ -202,7 +149,7 @@ def context(mjm, m, d):
 
 
 # ------------------------------------------------------------------
-# device-indexed step kernels
+# kernels of one physics step; k_dev[0] is the index of the physics step
 
 @wp.kernel(enable_backward=False)
 def _boundary(k_dev: wp.array(dtype=int), n_sub: int, warm: wp.array2d(dtype=float)):
@@ -284,18 +231,8 @@ def _gather(n_sub: int, hq: wp.array3d(dtype=float), hv: wp.array3d(dtype=float)
 # the plant
 
 class Plant:
-    """B worlds of one MuJoCo model on the fork with a differentiable rollout (module docstring).
-
-    Args:
-        nworld: B.
-        max_intervals: the longest rollout T; the history and the graphs are sized for it once.
-        mjm: the MjModel; tasks.panda.model() when None. nq must equal nv (hinge and slide joints).
-        n_sub: physics steps per interval (10 = h of 0.02 s at 2 ms).
-        umax: the normalization of the controls; tasks.panda.torque_limit() when None.
-        graph: capture one forward and one backward physics step as CUDA graphs; False runs the
-            same launch sequences eagerly (CPU devices always run eagerly).
-        device: a Warp device; CUDA graph capture needs CUDA ordinal 0 (pin CUDA_VISIBLE_DEVICES).
-    """
+    """nworld worlds of one MuJoCo model (nq = nv; the Panda of tasks.panda by default) with a differentiable
+    rollout of at most max_intervals intervals of n_sub physics steps; controls are in units of umax."""
 
     def __init__(self, nworld, max_intervals, mjm=None, n_sub=10, umax=None, graph=True, device="cuda:0"):
         from ..tasks import panda
@@ -312,7 +249,7 @@ class Plant:
         with wp.ScopedDevice(self.device):
             self.m = mjw.put_model(self.mjm)
             self.d = mjw.make_data(self.mjm, nworld=B, nconmax=NCONMAX, njmax=NJMAX)
-            self.d.contact.geomcollisionid.zero_()  # allocated uninitialized (fork io.py:1967); grip-mppi E014
+            self.d.contact.geomcollisionid.zero_()  # make_data leaves it uninitialized
             self.d_out = adjoint_util._clone_nograd(self.d)
             self.bc = context(self.mjm, self.m, self.d)
             z = lambda *s: wp.zeros(s, dtype=float)  # noqa: E731
@@ -365,8 +302,7 @@ class Plant:
         self.k_dev.zero_()
 
     def _capture(self):
-        """Run one forward and one backward step eagerly (compiles every module and runs the host
-        checks outside a capture), then capture each as a graph."""
+        """Run a forward and a backward step eagerly (loading every module), then capture each as a graph."""
         with wp.ScopedDevice(self.device), mjw.backward_context(self.bc):
             self._reset()
             self._fwd()
@@ -382,7 +318,7 @@ class Plant:
                 with wp.ScopedCapture(device=self.device, force_module_load=False) as cap:
                     self._keep.append(self._bwd())
                 self._bwd_graph = cap.graph
-                # instantiate both executables now, on this thread (grip-mppi rollout.py)
+                # the first launch of a graph instantiates its executable
                 self._reset()
                 wp.capture_launch(self._fwd_graph)
                 self._reset()
@@ -399,8 +335,8 @@ class Plant:
         self.d.mocap_pos.assign(np.asarray(pos, np.float32).reshape(self.B, self.mjm.nmocap, 3))
 
     def rollout(self, x0, V):
-        """States X (B, T + 1, 14) at the interval boundaries from x0 (B, 14) under the normalized
-        controls V (B, T, 7); numpy in, numpy out, float32."""
+        """States X (B, T + 1, 2 nq) at the interval boundaries from x0 (B, 2 nq) under the normalized controls
+        V (B, T, nu); float32 NumPy in and out."""
         x0 = np.asarray(x0, np.float32).reshape(self.B, 2 * self.nq)
         V = np.asarray(V, np.float32).reshape(self.B, -1, self.mjm.nu)
         T = V.shape[1]
@@ -432,8 +368,8 @@ class Plant:
         return X
 
     def vjp(self, C):
-        """(gV (B, T, 7), gx0 (B, 14)): the vector-Jacobian product of the last rollout for the
-        state cotangents C (B, T + 1, 14); gV is in the normalized control units."""
+        """(gV (B, T, nu), gx0 (B, 2 nq)): the vector-Jacobian product of the last rollout with the state
+        cotangents C (B, T + 1, 2 nq); gV is per normalized control."""
         if self._T is None:
             raise RuntimeError("vjp() before rollout()")
         T, N, nq = self._T, self._T * self.n_sub, self.nq

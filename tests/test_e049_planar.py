@@ -1,15 +1,4 @@
-"""E049: the planar unicycle example against independent references.
-
-- the JAX values of every smoothing on S1 and S2 against the NumPy oracle written from the
-  definitions (sparsemax_dstl/tasks/planar_oracle.py);
-- the AD derivative of the until on S1 against the closed forms of the reductions' derivatives
-  (plain log-sum-exp, sparsemax) and against central finite differences of the oracle (a test
-  check only);
-- the oracle's sparsemax value against a generic solver of the quadratic program on the simplex;
-- the rollout against a brute-force oracle (a Python loop over steps, labelled as such);
-- the inputs inside the box, and the samples of S1 inside Red where the design puts them;
-- the sparsemax value between the exact robustness minus its budget and the exact robustness.
-"""
+"""Tests of the planar unicycle example (tasks.planar) against the NumPy oracle, closed forms and finite differences."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -37,8 +26,7 @@ def case():
 
 
 def test_inputs_and_samples(case):
-    """Inputs in the box, forward speed never negative, turn rate continuous (a change of at most
-    0.2 rad/s per step); S1 dips at most depth into Red before the window and stands at the wait spot."""
+    """Inputs in the box with a turn rate that changes by less than 0.2 per step; S1 dips to the stated depth into Red and holds the wait level."""
     tm = case["tm"]
     for u in case["u"].values():
         assert np.all(u[:, 0] >= 0) and np.all(u[:, 0] <= P.V_MAX) and np.all(np.abs(u[:, 1]) <= P.W_MAX)

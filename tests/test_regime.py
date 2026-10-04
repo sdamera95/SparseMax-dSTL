@@ -1,6 +1,4 @@
-"""Checks of E022's additions: the scripted human's pass and wait (tasks.human), the regime
-instances (tasks.workspace.regime_instances), and the pieces of examples.e022_regime that
-the measurement relies on (row pruning, the node weights, the blocked rollout)."""
+"""Tests of the scripted human's pass and wait (tasks.human), the regime instances (tasks.workspace.regime_instances) and the row pruning, node weights and blocked rollout of examples.e022_regime."""
 from fractions import Fraction
 
 import jax
@@ -35,9 +33,7 @@ def test_new_fields_leave_the_e019_motion_unchanged():
 
 
 def test_pass_and_wait_attain_their_distances_at_the_stated_times():
-    """1 ms sampling: the hand is pass_gap from the anchor at t_pass and nowhere closer; it is
-    standoff from the anchor over the whole wait; at rest between the phases; rigid segments;
-    and a batch of two scripts equals the two scripts."""
+    """1 ms sampling: pass_gap at t_pass and nowhere closer, standoff over the wait, rest between the phases, rigid segments, and a batch of two scripts equal to the two scripts."""
     anchor = np.array([0.42, -0.05, 0.43])
     s = scripted(anchor=anchor, t_pass=6.0, pass_width=0.6, pass_gap=0.29, standoff=0.32, wait=4.0)
     t = np.round(np.arange(0, 12.001, 0.001), 6)
@@ -64,13 +60,7 @@ def test_pass_and_wait_attain_their_distances_at_the_stated_times():
 
 
 def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
-    """H = 8 s, wait 0.5 s: for two instances, recomputed here in float64 from the instance arrays,
-    - the anchor pair's margin at the handover configuration is pass_margin at t_pass and
-      standoff_margin over the hold, and no pair is closer at t_pass;
-    - every pair clears d_min + SEP_MARGIN at the three configurations over their windows
-      (every FILTER_STRIDE-th sample), and every margin outside the episode's right forearm
-      lies REGIME_CLEAR above the standoff margin;
-    - the candidates are those of instances()'s stream: same start, pick and handover as there."""
+    """Two instances in float64: the anchor pair's margins at t_pass and over the hold, the clearance of every pair at the three configurations, and the candidates against those of Wm._instances."""
     H = Fraction(8)
     sc = E.scenario(8)
     rg = E.ranges(0.5)
@@ -88,7 +78,7 @@ def test_regime_instances_have_the_designed_margins_and_pass_the_e019_filter():
     tp = int(round(6.0 / float(sc.h_s)))
     hold = (t >= 6.3 + 0.6) & (t <= 6.3 + 0.6 + 0.5)
     spans = [(0.0, 2.0), (2.0, 4.0), (4.8, 8.0)]
-    for i in range(2):  # over the two instances
+    for i in range(2):
         d = np.linalg.norm(C[i, 2][None, :, None] - I["human_centres"][i][:, None], axis=-1)  # (T, S_r, S_h) at q_handover
         marg = (d - Rp) / Rp
         a = I["anchor"][i]
@@ -122,9 +112,9 @@ def test_pruned_program_keeps_the_root_value_and_gradient():
     assert sum(s.index.size for s in pr.steps if s.kind != "atom") < sum(s.index.size for s in full.steps if s.kind != "atom")
     rng = np.random.default_rng(0)
     with jax.enable_x64(True):
-        for trial in range(3):  # random traces
+        for trial in range(3):
             Z = jnp.asarray(rng.normal(0.5, 0.5, (sc.samples, 3 + n_r + 2 * n_r * n_h)))
-            for sem in ("exact", methods.SEMANTICS["sparsemax"], methods.SEMANTICS["lse"]):  # three semantics
+            for sem in ("exact", methods.SEMANTICS["sparsemax"], methods.SEMANTICS["lse"]):
                 f = lambda prog: jax.value_and_grad(lambda Z: stl_jax.robustness(prog, Z, sem, 0.2)[0])(Z)
                 (a, ga), (b, gb) = f(pr), f(full)
                 assert float(a) == float(b)
@@ -132,14 +122,13 @@ def test_pruned_program_keeps_the_root_value_and_gradient():
 
 
 def test_node_weights_are_the_matched_reductions_gradients():
-    """float64: node_row's sparsemax support mass and lse mass equal those of jax.grad of the
-    matched wrappers of core_study.methods, at a minimum and a maximum node."""
+    """float64: node_row's sparsemax support mass and lse mass equal those of jax.grad of the matched reductions in sparsemax_dstl.jax.methods, at a minimum and a maximum node."""
     rng = np.random.default_rng(1)
     x = rng.normal(0, 0.3, 40)
     x[5] = x.min() - 0.05
     T = 40
-    for kind in ("min", "max"):  # both node kinds
-        for eps in E.EPS:  # the per-node errors
+    for kind in ("min", "max"):
+        for eps in E.EPS:
             row = E.node_row(x, kind, eps, T, np.arange(T) < 10, np.arange(T) >= 30)
             with jax.enable_x64(True):
                 fq = methods.sparsemax_min if kind == "min" else methods.sparsemax_max

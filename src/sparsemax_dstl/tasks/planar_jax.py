@@ -49,12 +49,12 @@ def _per_row(fn, z, param, mask):
 
 def _count(z, mask):
     valid = jnp.broadcast_to(jnp.ones((), bool) if mask is None else mask, z.shape)
-    return jnp.maximum(jnp.sum(valid, -1), 2).astype(z.dtype)  # one entry: exact for any parameter
+    return jnp.maximum(jnp.sum(valid, -1), 2).astype(z.dtype)  # at least 2: log(m) and 1 - 1/m are nonzero
 
 
 def matched(name, eps):
-    """(max_reduce, min_reduce) at worst-case error eps per node, for name in
-    'exact', 'lse_plain', 'sparsemax', 'gm01', 'gm10'."""
+    """(max_reduce, min_reduce) for name in 'exact', 'lse_plain', 'sparsemax', 'gm01', 'gm10'; at a node of m
+    valid entries beta = log(m) / eps and gamma = 2 eps / (1 - 1/m) (Equation (15) of the paper)."""
     if name == "exact":
         return exact_max, exact_min
     if name == "gm01":

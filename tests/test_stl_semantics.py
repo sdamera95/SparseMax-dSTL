@@ -1,3 +1,4 @@
+"""Tests of the JAX evaluator and formula compilation: the exact oracle, NNF duality, boundaries, the closed Until prefix, error budgets and reduction pairs."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -48,7 +49,7 @@ def test_nnf_and_release_duality():
 
 
 def test_closed_prefix_until_probe():
-    # M002 probe: left (1, 1, -1), right (-5, -5, 2), window [0, 2]. The closed
+    # left (1, 1, -1), right (-5, -5, 2), window [0, 2]. The closed
     # prefix needs the left operand at the witness too, so t = 0 gives -1; an
     # open prefix would give 1.
     z = jnp.array([[1.0, -5.0], [1.0, -5.0], [-1.0, 2.0]])

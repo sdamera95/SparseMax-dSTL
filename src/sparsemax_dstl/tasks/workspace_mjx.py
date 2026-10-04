@@ -65,15 +65,14 @@ def _trace(plant, sc, inst, X, eps_l, eps_v, mx):
 
 
 def scores(mx, plant, sc, inst, X):
-    """Atoms (T, P) along states X (T, 2 nq), sample k with the human spheres of sample k.
-    inst carries pick (3,), handover (3,), human_centres (T, S_h, 3) and human_radii (S_h,)."""
+    """Predicate values (T, P) along states X (T, 2 nq), sample k with the human spheres of sample k. inst carries
+    pick (3,), handover (3,), human_centres (T, S_h, 3) and human_radii (S_h,)."""
     return _trace(plant, sc, inst, X, sc.eps_length, sc.eps_speed, mx)
 
 
 def margins(mx, plant, sc, inst, X):
-    """The referee's unsmoothed normalized margins, in the layout of scores(); gradients stop
-    at X. The referee uses the sphere covers, the geometry the atoms use, so each margin is at
-    least its atom and the referee argument of the D006 amendment holds entry by entry."""
+    """The margins of scores() with the Euclidean norm in place of the smooth norms, in the same layout; gradients
+    stop at X."""
     return _trace(plant, sc, inst, jax.lax.stop_gradient(X), 0.0, 0.0, mx)
 
 
@@ -81,9 +80,8 @@ def margins(mx, plant, sc, inst, X):
 # dynamics at the STL sampling interval
 
 def physics_rollout(mx, n_sub, x0, U, step=mjx_implicit.step):
-    """Every physics state (N n_sub + 1, 2 nq) from x0 under U (N, nu), each command held for
-    n_sub physics steps, the solver warm start reset at every interval as in
-    tasks.panda.interval_map."""
+    """Every physics state (N n_sub + 1, 2 nq) from x0 under U (N, nu), each command held for n_sub physics steps;
+    the constraint solver's warm start is zero at the start of every command."""
     nq = x0.shape[-1] // 2
 
     def interval(x, u):
@@ -121,29 +119,8 @@ def ik(mx, plant, spacing, targets, q_init, lo, hi, iterations=IK_ITERATIONS, da
 
 
 def instances(seed, n, sc=Scenario(), plant=Plant()):
-    """The first n valid instances of a seeded candidate stream, for the scenario sc.
-
-    Each candidate draws:
-    - a start configuration q0, the model's home keyframe plus uniform noise of Q_SPREAD rad per
-      joint, JOINT_MARGIN inside the joint ranges;
-    - a pick target uniformly in PICK_BOX (x, |y| with a random side, z), beside the zone;
-    - a handover target uniformly in the part of the zone ball within zone_radius - ZONE_MARGIN
-      of its centre and at least HANDOVER_MIN_Z above the table;
-    - a human script uniformly in SCRIPT_RANGES.
-    The pick and handover configurations solve site-position inverse kinematics (ik) from the
-    home keyframe, JOINT_MARGIN inside the joint ranges, and the poses are the site positions
-    there, so both are reachable. A
-    candidate is valid when:
-    - both IK solves end within IK_TOLERANCE of their targets;
-    - the start site and the pick pose lie at least ZONE_MARGIN outside the zone ball;
-    - every robot sphere clears every human sphere by d_min + SEP_MARGIN beyond the radii: at q0
-      over [0, a H], at the pick configuration over the pick window, and at the handover
-      configuration from c H to H (the robot may hold the part there to the end), at every
-      FILTER_STRIDE-th STL sample.
-    These are necessary conditions at the configurations the task must visit; that a whole
-    trajectory satisfies the specification is shown by a witness path (examples.e019_witness).
-    Kinematics run in float64. instances(seed, k) is a prefix of instances(seed, n).
-    """
+    """The first n valid instances of a seeded candidate stream for the scenario sc: a start configuration, pick and
+    handover targets with their inverse-kinematics configurations, and a human script; a prefix of any longer draw."""
     out = _instances(seed, sc, plant)
     if out["accepted"] < n:
         raise ValueError("only " + str(out["accepted"]) + " of " + str(N_CANDIDATES) + " candidates are valid")
@@ -209,7 +186,7 @@ def heldout_set(sc=Scenario()):
 
 
 # ------------------------------------------------------------------
-# the designed regime: one close pass of the hand and a wait at a standoff
+# one close pass of the person's hand and a wait at a standoff
 
 @cache
 def _regime_candidates(seed, sc, plant):
@@ -239,9 +216,8 @@ def _regime_candidates(seed, sc, plant):
 
 
 def _min_margins(C, hc, R, S, ok, batch=16):
-    """Per candidate, the smallest (d - R) / S over robot spheres C (V, K, S_r, 3) at K
-    configurations and human spheres hc (V, T, S_h, 3), d the centre distance, over the entries
-    where ok (V, K, T, S_h) holds; R and S (S_r, S_h). float64, lax.map over candidates."""
+    """Per candidate, the smallest (d - R) / S over robot spheres C (V, K, S_r, 3) at K configurations and human
+    spheres hc (V, T, S_h, 3), d the centre distance, where ok (V, K, T, S_h) holds; R and S (S_r, S_h)."""
     with jax.enable_x64(True):
         R, S = jnp.asarray(R), jnp.asarray(S)
 
@@ -254,21 +230,8 @@ def _min_margins(C, hc, R, S, ok, batch=16):
 
 
 def regime_instances(seed, n, sc=Scenario(), ranges=None, plant=Plant()):
-    """The first n valid instances of the candidate stream of _instances, with the human of
-    regime_script_of (the pass and the wait drawn in ranges, REGIME_RANGES by default, from the
-    stream [seed, 2]). A candidate is valid when:
-    - it passes the checks of instances() (IK, zone margins, and every robot sphere clearing
-      every human sphere by d_min + SEP_MARGIN at the three configurations over their windows,
-      every FILTER_STRIDE-th sample), with this human;
-    - the pass and standoff points lie within 0.98 of the human's arm length from the standing
-      shoulder, so the stated distances hold;
-    - at the three configurations over their windows, every FILTER_STRIDE-th sample, every
-      separation margin (score units) is at least standoff_margin + REGIME_CLEAR, except those
-      of the right forearm's spheres during the designed episode (regime_episode). So on the
-      reference path the pass is the separation minimum, the wait the next level, and every
-      other entry lies REGIME_CLEAR above the wait.
-    Returns the arrays of instances() plus regime (dict of (n,) draws), anchor (n,) the anchor
-    sphere index and R (n,)."""
+    """The first n valid instances of the candidate stream of instances() with the human of regime_script_of, the pass
+    and the wait drawn in ranges (REGIME_RANGES by default); adds regime (dict of (n,) draws), anchor and R (n,)."""
     ranges = REGIME_RANGES if ranges is None else ranges
     out = _regime_instances(seed, sc, plant, tuple(sorted((k, tuple(v)) for k, v in ranges.items())))
     if out["accepted"] < n:
@@ -294,7 +257,7 @@ def _regime_instances(seed, sc, plant, ranges):
     hum = human_inputs(script, sc)
     H, hs = float(sc.H), float(sc.h_s)
     t = np.arange(sc.samples) * hs
-    hand_from = dict(ranges)["hand_from"][0] if "hand_from" in dict(ranges) else float(sc.handover[0]) * H  # E029 key
+    hand_from = dict(ranges)["hand_from"][0] if "hand_from" in dict(ranges) else float(sc.handover[0]) * H
     spans = [(0.0, float(sc.pick[0]) * H), (float(sc.pick[0]) * H, float(sc.pick[1]) * H), (hand_from, H)]
     inside = np.stack([(t >= lo_) & (t <= hi_) & (np.arange(len(t)) % FILTER_STRIDE == 0) for lo_, hi_ in spans])  # (3, T)
     hr = hum["human_radii"]

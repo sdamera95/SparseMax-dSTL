@@ -1,10 +1,5 @@
-"""Predicates: differentiable score functions of one state, positive when satisfied.
-
-A predicate declares the state coordinates its score depends on, A_mu, which
-the specification-derived sparsity patterns use. The STL layer never sees the
-functions, only their score traces, so any predicate composes with any
-semantics through the chain rule.
-"""
+"""Predicates: differentiable score functions of one state, positive when satisfied, each with
+the state coordinates it declares its score to depend on."""
 from dataclasses import dataclass
 from typing import Callable
 
@@ -34,10 +29,8 @@ def dependency_matrix(predicates, n_x):
 
 
 def undeclared_gradient(predicates, X):
-    """Largest |d g / d x_j| over sampled states X (N, n_x) and undeclared j.
-
-    A nonzero value refutes a declaration; zero on samples does not prove one.
-    """
+    """Largest |d g / d x_j| over sampled states X (N, n_x), predicates g and
+    coordinates j that g does not declare."""
     D = dependency_matrix(predicates, X.shape[-1])
     worst = []
     for i, p in enumerate(predicates):

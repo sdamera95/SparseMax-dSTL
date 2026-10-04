@@ -1,15 +1,4 @@
-"""Tests of E037's instance generator and bookkeeping (examples/e037_instances.py). CPU only.
-
-- The generator: deterministic in its seed, draw i independent of the number of draws, every
-  value inside its range; E034's parameters give E034's pick, handover and via targets; every
-  draw's pick lies HOLD outside the zone boundary and its handover inside the zone above
-  W.HANDOVER_MIN_Z.
-- until_batch (the regime check over a batch of starts) equals E034's until_rows start by start
-  (brute-force oracle: a loop over starts) on synthetic traces with an entry and a hold.
-- run_outcomes against E034's tested outcomes function; paired against a brute-force oracle;
-  label_rows on hand-built rows; setup and load: the run order, the per-run instance targets,
-  contiguous (arm, wait) blocks.
-"""
+"""Tests of the instance generator and the run bookkeeping of examples.e037_instances, on the CPU."""
 import numpy as np
 import pytest
 
@@ -23,10 +12,10 @@ from sparsemax_dstl.tasks import workspace as W
 
 def test_draws_deterministic_and_in_range():
     a, b, c = X.draws(), X.draws(), X.draws(n=7)
-    for k in a:  # parameters
+    for k in a:
         assert np.array_equal(a[k], b[k])
         assert np.array_equal(a[k][:7], c[k])
-    for k, (lo, hi) in X.RANGES.items():  # parameters
+    for k, (lo, hi) in X.RANGES.items():
         assert np.all((a[k] >= lo) & (a[k] <= hi)), k
     assert a["via_noise"].shape == (X.N_DRAWS, 7)
     assert not np.array_equal(X.draws(seed=X.SEED + 1)["az"], a["az"])
@@ -55,7 +44,6 @@ def test_targets_geometry():
     assert np.max(np.abs(np.linalg.norm(pick - z, axis=1) - (sc.zone_radius + sc.until_hold))) <= 1e-12
     assert np.max(np.abs(np.linalg.norm(hand - z, axis=1) - d["hd_r"])) <= 1e-12
     assert np.all(d["hd_r"] < sc.zone_radius) and np.all(hand[:, 2] >= W.HANDOVER_MIN_Z)
-    # the via site lies outside the zone, beyond the pick target along the ray
     assert np.all(np.linalg.norm(via - z, axis=1) > sc.zone_radius + sc.until_hold)
     assert np.all(np.sum((via - pick) * n, 1) > 0)
 
@@ -88,10 +76,10 @@ def test_until_batch_equals_until_rows(w, eps):
     B = 5
     zs, ps, zm, pm, entry = synthetic(B, w, rng)
     got = X.until_batch(zs, ps, zm, pm, w, eps, entry, U.T_HOLD)
-    for b in range(B):  # brute-force oracle: one start at a time through E034's until_rows
+    for b in range(B):  # brute-force oracle: one start at a time through until_rows
         ref = U.until_rows(zs[b], ps[b], zm[b], pm[b], w, eps, entry[b], U.T_HOLD)
         assert set(ref) == set(got), b
-        for key, v in ref.items():  # output fields
+        for key, v in ref.items():
             g = got[key][b]
             if isinstance(v, (bool, int, np.integer)):
                 assert int(g) == int(v), (b, key, g, v)
@@ -117,7 +105,7 @@ def test_run_outcomes_against_e034():
     assert np.array_equal(o["false_claim_end"], r["false_safe_end"])
     for i in range(n):  # brute-force oracle: runs
         cl = rs[i] >= 0
-        assert o["false_claim_iterates"][i] == sum(cl[k] and ex[i, k] < 0 for k in range(K))  # brute-force oracle: iterates
+        assert o["false_claim_iterates"][i] == sum(cl[k] and ex[i, k] < 0 for k in range(K))
         if cl.any():
             assert o["deepest_while_claiming"][i] == min(ex[i, k] for k in range(K) if cl[k])
         else:
@@ -144,9 +132,9 @@ def test_paired_oracle():
 
 def test_label_rows():
     rows = []
-    for inst, share, hold in ((0, 0.15, 0), (1, 0.25, 0), (2, 0.1, 3)):  # three hand-built instances
-        for w in U.WAITS:  # waits
-            for eps in U.EPS:  # eps
+    for inst, share, hold in ((0, 0.15, 0), (1, 0.25, 0), (2, 0.1, 3)):
+        for w in U.WAITS:
+            for eps in U.EPS:
                 rows.append({"instance": inst, "depth": 0.05, "draw": inst + 10, "eps": eps, "wait": w,
                              "share_entry_deciding": share if w == max(U.WAITS) else 0.6, "support_hold_deciding": hold if (w == 4.0 and eps == 0.4) else 0,
                              "support_hold_any": 0, "k_entry": 17, "gap": 0.075, "gamma_over_k": 0.047, "root_lse_plain": 0.02, "deciding": "order"})

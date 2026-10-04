@@ -1,12 +1,4 @@
-"""Warp sparsemax reductions and their weight adjoints against JAX.
-
-Tolerance 1024 eps relative to max(1, largest reference entry), as in
-test_stl_warp.py: the threshold search and the sums run in a different order
-than JAX's sort and cumsum, and a weight is (y - theta)/gamma, so small gamma
-scales rounding by 1/gamma. Near a support switch the two backends may place
-an entry on different sides; weights are continuous there, so that stays
-within rounding.
-"""
+"""Warp sparsemax reductions and their weight adjoints against JAX."""
 import contextlib
 
 import jax
@@ -31,6 +23,7 @@ def x64(dtype):
 
 
 def close(a, b, dtype):
+    # 1024 eps relative to max(1, largest reference entry): the sums run in a different order than JAX's sort and cumsum
     return np.max(np.abs(a - b), initial=0.0) <= 1024 * np.finfo(dtype).eps * max(1.0, np.max(np.abs(b), initial=0.0))
 
 
@@ -101,7 +94,6 @@ def test_twolink_chain(dtype):
 
 
 def test_worked_example_in_warp():
-    # scores of the extension's example: mu = a + b and -nu = -(b + c) at samples 0..3
     z = np.array([[[0, 0], [-1, -1], [2, -3], [0.5, 0]]], dtype=np.float64)
     prog = stl.compile_formula(stl.And(stl.Eventually((1, 2), stl.Atom(0)), stl.Always((0, 1), stl.Atom(1, True))), 4)
     s = wp.array(z, dtype=wp.float64, device="cpu", requires_grad=True)

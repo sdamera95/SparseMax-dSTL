@@ -1,25 +1,5 @@
-"""E049 round 2: the planar unicycle example with disk regions (one predicate per region).
-
-Predicates (P = 8), each positive when satisfied, from the position p = (x, y):
-
-    0..3  inside Red, Green, Blue, Obstacle:  r_i - |p - c_i|   (outside is the negated atom, |p - c_i| - r_i)
-    4..7  inside the workspace [0, 10]^2:     x, 10 - x, y, 10 - y
-
-With one predicate per region every smoothing sees the exact signed distance to a region, so the
-comparison between the smoothings is about the temporal operators (the until, eventually, always and
-the top conjunction), which is what the theorems are about.
-
-STL specification (intervals in samples):
-
-    (not Red  U_[a1, b1]  Green)  and  F_[a2, b2] G_[0, 2/h] Blue  and  G_[0, T-1] not Obstacle  and  G_[0, T-1] Boundary.
-
-The unicycle, its sampling period, the input box and the smoothings matched at one worst-case error per
-node are those of planar.py (rollout, matched). matched below adds one pair to planar.matched, the sound
-log-sum-exp ('lse_sound', round 3): at a node with m valid entries and beta = log(m) / eps, the minimum
--(1/beta) log sum exp(-beta z) (as the plain log-sum-exp) and the maximum (1/beta) log sum exp(beta z) - log(m) / beta
-(semantics.lse_max: the plain maximum shifted down by log(m) / beta = eps). Both lie between the exact extremum
-minus eps and the exact extremum, so the value is a lower bound of the exact robustness.
-"""
+"""Planar unicycle of Section V-A of the paper: four disk regions with one signed-distance predicate each, the
+specification of Equation (18), and the fixed trajectories S1 and S2."""
 import numpy as np
 
 from ..stl import Always, And, Atom, Eventually, Not, Until
@@ -36,7 +16,8 @@ def make_regions(red, green, blue, obstacle):
 
 
 def specification(a1, b1, a2, b2, T):
-    """(specification, its four conjuncts, the until); intervals in samples."""
+    """(specification, its four conjuncts, the until) of Equation (18), intervals in samples. Predicates 0..3 are
+    r_i - |p - c_i| for Red, Green, Blue, Obstacle and 4..7 are x, 10 - x, y, 10 - y."""
     hold = int(round(2 / H))
     until = Until((a1, b1), Not(Atom(0)), Atom(1))
     conj = (until, Eventually((a2, b2), Always((0, hold), Atom(2))), Always((0, T - 1), Not(Atom(3))),
@@ -53,22 +34,21 @@ GREEN = (5.6, 7.6, 1.0)
 BLUE = (8.3, 2.6, 1.0)
 OBSTACLE = (6.7, 4.3, 0.6)
 REGIONS = make_regions(RED, GREEN, BLUE, OBSTACLE)
-GREEN_STOP = (5.45, 7.4)  # 0.25 m from Green's centre: at a centre the predicate r - |p - c| has the apex of a cone
-BLUE_STOP = (8.3, 2.85)  # 0.25 m from Blue's centre, for the same reason
+GREEN_STOP = (5.45, 7.4)  # 0.25 m from Green's centre, where the predicate r - |p - c| has a kink
+BLUE_STOP = (8.3, 2.85)  # 0.25 m from Blue's centre
 GREEN_HEADING = -0.6  # heading at the stop in Green
 BLUE_HEADING = -np.pi / 2
 V_CRUISE = 0.6  # m/s, plateau speed of the drives
 
 
 def _on_red(radius, phi):
-    """Point at angle phi on the circle of the given radius about Red's centre, the clockwise heading there."""
+    """Point at angle phi on the circle of the given radius about Red's centre, and the clockwise heading there."""
     return np.array([RED[0] + radius * np.cos(phi), RED[1] + radius * np.sin(phi)]), phi - np.pi / 2
 
 
 def blend(r0, r1, phi0, phi1, n=4000):
     """Dense points of the curve r(phi) = r0 + (r1 - r0) S(x) about Red's centre, x = (phi - phi0) / (phi1 - phi0),
-    S the quintic smootherstep 6x^5 - 15x^4 + 10x^3 (zero first and second derivative at both ends, so the
-    curve joins the circles of radius r0 and r1 with their heading and curvature)."""
+    with S the quintic smootherstep 6x^5 - 15x^4 + 10x^3."""
     x = np.linspace(0, 1, n)
     r = r0 + (r1 - r0) * (6 * x**5 - 15 * x**4 + 10 * x**3)
     phi = phi0 + (phi1 - phi0) * x
@@ -76,20 +56,8 @@ def blend(r0, r1, phi0, phi1, n=4000):
 
 
 def trajectories(wait, eps=0.1, depth=0.15, stand=0.23, clear=3.0, k_arc=12, down=0.08, phi_in=205.0, exit_turn=0.5):
-    """S1, S2 and the specification's timing for one wait (samples standing at the wait spot); depth, stand
-    and clear are in units of eps.
-
-    S1 starts at Z0, drives a gentle S-curve onto the circle of radius R - depth*eps about Red's centre
-    (inside Red by depth*eps), follows it clockwise at the plateau speed V_CRUISE for k_arc steps (constant
-    turn rate, so those samples have equal depth), leaves Red on the blend r(phi) from R - depth*eps to
-    R + stand*eps over exit_turn radians (smootherstep), slowing to rest at its end, stands for wait samples, then curves around Red's north side to
-    its stop in Green (GREEN_STOP, heading GREEN_HEADING), stands until 0.5 s after Green's window closes, and
-    drives a curve to its stop in Blue (BLUE_STOP, heading south). S2 drives one curve from Z0 past Red's
-    west side, touching the circle of radius R + clear*eps at one point (heading north there, turning
-    more gently than that circle, so the clearance has a single minimum), to the same stop in Green,
-    stands there for the same time and takes the same curve to Blue. Green's window opens 0.5 s after S1
-    reaches Green and lasts 2 s; Blue's start window is the 6 s centred on the arrival in Blue.
-    Returns (u1, u2, timing); both start from Z0."""
+    """(u1, u2, timing): the inputs of S1 and S2 from Z0 and the specification's windows, for a wait of `wait` samples.
+    S1 runs depth eps inside Red on a concentric arc and waits stand eps outside; S2 passes clear eps west of Red."""
     R = RED[2]
     r_in, r_out = R - depth * eps, R + stand * eps
     phi1 = np.radians(phi_in)

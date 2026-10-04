@@ -1,23 +1,4 @@
-"""sparsemax_dstl.warp_predicates (E030) against tasks.workspace.scores. CPU, float32 and float64.
-
-States: two worlds of five samples, q uniform inside the joint ranges, qdot standard normal
-(rad/s), human spheres uniform in a box around the arm (some inside the robot's spheres), random
-goals; in world 1 the qdot of sample 0 is zero, the pick goal sits on the site at sample 1 and a
-human sphere centre on a robot sphere centre at sample 2 (the atoms' smoothing at zero length).
-Tolerances, stated before the first run: values within 1e-12 (float64) and 2e-5 (float32)
-absolute (the atoms are normalized margins of order 1); tape gradients (the vector-Jacobian
-product of a standard normal cotangent) within 1e-10 (float64) and 1e-4 (float32) of the largest
-reference entry.
-
-Revision after the first development run (2026-10-01, E030): in float32 the gradient differed
-by 1.5e-4 of the largest entry, all of it at the zero-length pick atom (world 1, sample 1; 6.2e-7
-with that sample's zero-length atoms removed from the cotangent). At zero length the smoothed
-goal atom's Hessian bound is 1/(eps_length r_goal) = 4e4 per m^2 (E014), so a float32 rounding
-difference of 1e-7 m between the two kinematics moves its gradient by up to about 4e-3 per unit
-cotangent and metre of lever arm. The float32 check therefore applies the stated 1e-4 to the
-cotangent without the zero-length entries, and 1e-3 to the full cotangent; float64 keeps 1e-10
-on the full cotangent.
-"""
+"""Tests of the Warp predicates (sparsemax_dstl.warp.predicates) against tasks.workspace_mjx.scores on the CPU in float32 and float64."""
 import contextlib
 
 import jax
@@ -33,7 +14,9 @@ from sparsemax_dstl.warp.predicates import Predicates
 
 wp.config.log_level = wp.LOG_WARNING
 DTYPES = {np.float32: wp.float32, np.float64: wp.float64}
-TOL = {np.float32: (2e-5, 1e-4, 1e-3), np.float64: (1e-12, 1e-10, 1e-10)}  # values, gradients, gradients at zero length
+# values (absolute); gradients with the zero-length atoms removed from the cotangent and on the full cotangent (relative to the largest
+# reference entry). float32 is looser on the full cotangent: the smoothed atoms have a large Hessian at zero length, which amplifies rounding differences
+TOL = {np.float32: (2e-5, 1e-4, 1e-3), np.float64: (1e-12, 1e-10, 1e-10)}
 B, T, NH = 2, 5, 5
 
 

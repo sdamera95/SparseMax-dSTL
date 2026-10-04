@@ -1,28 +1,4 @@
-"""Generalized mean robustness (E036): the arms gm_pm01 and gm_exp against the paper's equations.
-
-Source: Mehdipour, Vasile and Belta, Generalized mean robustness for signal temporal
-logic, IEEE TAC 70(3), 2025 (docs/references/Generalized_Mean_Robustness_for_Signal_Temporal_Logic.pdf).
-With $[x]_- = \\min(x, 0)$, $[x]_+ = \\max(x, 0)$ and $d$ the number of valid entries,
-
-    conjunction (eq. 12, eq. 17):  $\\wedge(x) = F_c(x)$ if $\\min_i x_i > 0$, else $-F_g(-[x]_-)$,
-    disjunction (De Morgan):       $\\vee(x) = -\\wedge(-x)$, so $\\vee(x) = 0$ when $\\max_i x_i = 0$,
-
-with $F_c = M_p$ and $F_g = M_q$ for the power mean robustness of order $(p, q)$, where
-$M_p(x) = (\\frac{1}{d} \\sum_i x_i^p)^{1/p}$ (eq. 3) and $M_0$ the geometric mean: gm_pm01 is
-$(p, q) = (0, 1)$, gm_pm10 is $(p, q) = (-10, 10)$, and semantics.gm_power(p, q) gives any
-order with $q \\ge 1$. For gm_exp $c(x) = -e^{-\\beta x}$, $g(x) = e^{\\beta x}$, so that
-$F_c(x) = -\\frac{1}{\\beta} \\log \\frac{1}{d} \\sum_i e^{-\\beta x_i}$ and
-$F_g(y) = \\frac{1}{\\beta} \\log \\frac{1}{d} \\sum_i e^{\\beta y_i}$. The formula recursion is eq. 15,
-with the closed prefix of the Until nested:
-$\\eta(\\varphi U_{[a,b]} \\psi, t) = \\vee_{k \\in [a,b]} \\wedge(\\eta(\\psi, t+k), \\wedge_{s \\in [t, t+k]} \\eta(\\varphi, s))$.
-The matched gm_exp uses $\\beta_v = \\log(m_v) / \\epsilon$ at a node with $m_v > 1$ entries and
-returns the entry itself at a node with one entry.
-
-The oracles here are written from these equations only: conj_oracle and walk are
-brute-force oracles (plain Python, one entry and one sample at a time, the values in
-40-digit decimal arithmetic), and literal_conj is a literal JAX transcription without
-numerical stabilization, used as the gradient reference.
-"""
+"""Generalized-mean robustness against brute-force oracles written from eqs. 3, 12, 15 and 17 of "Generalized mean robustness for signal temporal logic" (IEEE TAC 2025)."""
 import math
 from decimal import Decimal, localcontext
 
@@ -46,9 +22,7 @@ EPS = 0.3
 
 
 def close(a, b, atol=1e-12, rtol=1e-10):
-    """Entrywise |a - b| <= atol + rtol |b|. The float64 defaults: the reductions take exp and log
-    of arguments up to beta max|x| (about 50 here), each of which commits a few units of
-    roundoff 2.2e-16 relative to the argument, so absolute errors stay below 1e-13."""
+    """Entrywise |a - b| <= atol + rtol |b|. The float64 defaults cover exp and log of arguments up to beta max|x| (about 50 here)."""
     a, b = np.asarray(a, np.float64), np.asarray(b, np.float64)
     return bool(np.all(np.abs(a - b) <= atol + rtol * np.abs(b)))
 
@@ -74,9 +48,7 @@ def power_mean_oracle(x, p):
 
 
 def conj_oracle(xs, arm, beta=None):
-    """Brute-force oracle of the d-ary conjunction (eq. 12 for the power means, arm a name in
-    ORDERS or a pair (p, q); eq. 17 with the exponential member for gm_exp), one entry at a
-    time in 40-digit decimals."""
+    """Brute-force oracle of the d-ary conjunction in 40-digit decimals: eq. 12 for the power means (arm in ORDERS or a pair (p, q)), eq. 17 for gm_exp."""
     with localcontext() as ctx:
         ctx.prec = 40
         x = [v if isinstance(v, Decimal) else Decimal(float(v)) for v in xs]
@@ -106,9 +78,8 @@ def disj_oracle(xs, arm, beta=None):
 
 
 def walk(f, t, leaf, red):
-    """Brute-force oracle of eq. 15: the value of the NNF formula f at sample t, looping over the
-    window entries, the Until's witnesses and its closed prefix. leaf(atom, t) gives an atom's
-    value and red(values, kind) a conjunction ("min") or disjunction ("max") of a list."""
+    """Brute-force oracle of eq. 15: the value of the NNF formula f at sample t, with the Until's closed prefix nested.
+    leaf(atom, t) gives an atom's value and red(values, kind) a conjunction ("min") or disjunction ("max") of a list."""
     if isinstance(f, stl.Atom):
         return leaf(f, t)
     if isinstance(f, stl.And):
@@ -178,8 +149,7 @@ def literal_disj(x, arm, beta):
 
 
 def literal_trace(f, z, arm, eps):
-    """Literal transcription of eq. 15 for one trace z (T, P) with the matched parameters, built by
-    the brute-force walk over windows and samples; returns the root trace."""
+    """Literal JAX transcription of eq. 15 on one trace z (T, P) with the matched parameters; returns the root trace."""
     def leaf(g, t):
         return -z[t, g.index] if g.negated else z[t, g.index]
 
@@ -243,7 +213,7 @@ def test_zero_entries():
     # an entry exactly 0 with the others positive: conj = 0 (the else branch), disj > 0;
     # max exactly 0: disj = 0 by De Morgan
     with jax.enable_x64(True):
-        for arm, beta in (("gm_pm01", None), ("gm_pm10", None), ((-2, 2), None), ("gm_exp", 10.0)):  # arms
+        for arm, beta in (("gm_pm01", None), ("gm_pm10", None), ((-2, 2), None), ("gm_exp", 10.0)):
             assert float(reducer(arm, "min")(jnp.asarray([0.0, 0.5, 1.5]), beta)) == 0.0
             assert float(reducer(arm, "max")(jnp.asarray([0.0, 0.5, 1.5]), beta)) > 0.0
             assert float(reducer(arm, "max")(jnp.asarray([0.0, -0.5, -1.5]), beta)) == 0.0
@@ -337,27 +307,12 @@ def test_mask_matched(arm, kind):
 # 3. float32
 
 def test_float32_sign():
-    """500 entries in float32: one violating entry -1e-6 among 499 entries at +0.05 keeps a
-    negative conjunction; with that entry at +1e-6 the conjunction is positive.
-
-    Tolerance against float64: relative 2e-4. The float32 unit roundoff is 1.2e-7. The
-    largest float32 error here is the geometric mean's sum of 500 logarithms of magnitude
-    about 3 (log 0.05): recursive summation commits at most 500 roundoffs of the running
-    sum, an absolute error of at most 500 * 3 * 1.2e-7 = 1.8e-4 in the mean logarithm, which
-    the exponential turns into the same relative error. The violating case's exact values are
-    about -2e-9 (gm_pm01: -1e-6/500, the same order for gm_exp), so the tolerance also rules
-    out a float32 evaluation whose cancellation leaves only noise. For gm_pm10 the violating
-    value is -(1e-60 / 500)^{1/10}, about -5.4e-7, and the positive one about 1.9e-6: x^{10}
-    underflows and x^{-10} overflows in float32 at x = 1e-6, so only a log-domain evaluation
-    keeps the sign. There the logarithms have magnitude up to 10 |log 1e-6| = 138, each with
-    an absolute error near 138 * 1.2e-7 = 1.7e-5, which division by 10 turns into a relative
-    error near 2e-6 of the mean.
-    """
+    """500 entries in float32: one entry at -1e-6 among 499 at +0.05 keeps the conjunction negative; at +1e-6 it is positive."""
     x = np.full(500, 0.05)
     x[123] = -1e-6
     xp = x.copy()
     xp[123] = 1e-6
-    for arm, beta in (("gm_pm01", None), ("gm_pm10", None), ("gm_exp", BETAS[0]), ("gm_exp", BETAS[1])):  # cases
+    for arm, beta in (("gm_pm01", None), ("gm_pm10", None), ("gm_exp", BETAS[0]), ("gm_exp", BETAS[1])):
         conj, disj = reducer(arm, "min"), reducer(arm, "max")
         neg = conj(jnp.asarray(x, jnp.float32), beta)
         pos = conj(jnp.asarray(xp, jnp.float32), beta)
@@ -371,21 +326,18 @@ def test_float32_sign():
             neg64 = float(conj(jnp.asarray(x, jnp.float64), beta))
             pos64 = float(conj(jnp.asarray(xp, jnp.float64), beta))
         assert close(neg64, oracle(arm, "min", x, beta)) and close(pos64, oracle(arm, "min", xp, beta))
+        # relative 2e-4: the sum of 500 logarithms of magnitude about 3 in the geometric mean commits up to 500 * 3 * 1.2e-7 = 1.8e-4
         assert close(float(neg), neg64, 0.0, 2e-4), (arm, beta, float(neg), neg64)
         assert close(float(pos), pos64, 0.0, 2e-4), (arm, beta, float(pos), pos64)
 
 
 def test_float32_pm10_range():
-    """gm_pm10 in float32 on 500 entries spanning 1e-3 to 4 (x^{-10} up to 1e30, x^{10} up to
-    1e6), all positive and with a third of them negated: finite, same sign as float64, within
-    relative 1e-4 (logarithms of magnitude up to 10 |log 1e-3| = 69 with absolute error near
-    69 * 1.2e-7 = 8e-6 each; divided by 10 that is under 1e-6 relative per term, and the 500-term
-    log-sum-exp adds at most a few float32 roundoffs relative to its value)."""
+    """gm_pm10 in float32 on 500 entries from 1e-3 to 4, all positive and with every third negated: finite, the float64 sign, relative error below 1e-4."""
     rng = np.random.default_rng(3)
     x = np.exp(rng.uniform(np.log(1e-3), np.log(4.0), 500))
     xm = x * np.where(np.arange(500) % 3 == 0, -1.0, 1.0)
-    for z in (x, xm):  # two vectors
-        for kind in ("min", "max"):  # conjunction and disjunction
+    for z in (x, xm):
+        for kind in ("min", "max"):
             f = reducer("gm_pm10", kind)
             v = float(f(jnp.asarray(z, jnp.float32)))
             with jax.enable_x64(True):
@@ -396,7 +348,7 @@ def test_float32_pm10_range():
 
 
 # ------------------------------------------------------------------
-# 4. sign equivalence with the exact robustness (Theorem 2)
+# 4. sign equivalence with the exact robustness
 
 A0, A1, A2 = stl.Atom(0), stl.Atom(1), stl.Atom(2)
 FORMULAS = {
@@ -443,10 +395,7 @@ def test_formula_against_oracle(name, arm):
 
 
 def test_until_is_nested():
-    """Until([1, 1], phi, psi) at t = 0 over T = 2 samples is conj2(psi(1), conj(phi(0), phi(1))).
-    With phi = (1, -0.5) and psi(1) = -1, gm_pm01 gives the prefix (0 - 0.5)/2 = -0.25 and the
-    root (-1 - 0.25)/2 = -0.625; one flat conjunction of (psi(1), phi(0), phi(1)) would give
-    (-1 + 0 - 0.5)/3 = -0.5."""
+    """Until([1, 1], phi, psi) at t = 0 over T = 2 samples is conj2(psi(1), conj(phi(0), phi(1))), not one flat conjunction."""
     f = stl.Until((1, 1), A0, A1)
     prog = stl.compile_formula(f, 2, boundary="strict")
     z = np.zeros((1, 2, 2))
@@ -456,6 +405,7 @@ def test_until_is_nested():
         pm = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_pm01"], EPS)[0, 0])
         p10 = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_pm10"], EPS)[0, 0])
         ex = float(stl_jax.robustness(prog, z, methods.SEMANTICS["gm_exp"], EPS)[0, 0])
+    # gm_pm01: phi = (1, -0.5) gives the prefix (0 - 0.5)/2 = -0.25 and psi(1) = -1 the root (-1 - 0.25)/2 = -0.625; a flat conjunction gives -0.5
     assert close(pm, -0.625)
     # gm_pm10: prefix -(0.5^10 / 2)^{1/10}, root -((1 + prefix^10) / 2)^{1/10}; flat -((1 + 0.5^10) / 3)^{1/10}
     pre = -(0.5 ** 10 / 2) ** 0.1
@@ -512,9 +462,7 @@ def test_vector_gradients(name, arm, kind):
 
 
 def test_finite_difference():
-    # the minimal extra check: central differences, step 1e-6, float64, on one mixed vector.
-    # Truncation error h^2 |f'''| / 6 with |f'''| about beta^2 = 100 is 2e-11; rounding
-    # error about 2.2e-16 / 1e-6 = 2e-10; tolerance 1e-8.
+    # central differences with step 1e-6 in float64: truncation error about 2e-11, rounding error about 2e-10
     x = np.asarray([0.3, -0.2, 0.8, -0.05, 1.1])
     h = 1e-6
     with jax.enable_x64(True):
@@ -606,9 +554,7 @@ def test_warp_other_measures_need_a_parameter(arm):
 @pytest.mark.skipif(not wp.is_cuda_available(), reason="needs a CUDA device for Warp")
 @pytest.mark.parametrize("arm", ARMS)
 def test_jax_warp_cuda_float32(arm):
-    """float32 Warp on cuda:0 against float64 JAX: 1024 float32 roundoffs (1.2e-4) relative to
-    max(1, largest reference entry), the bound tests/test_stl_warp.py uses for exp and log from
-    different libraries and different summation orders; the float64 reference adds nothing."""
+    """float32 Warp on cuda:0 against float64 JAX, to 1024 float32 roundoffs relative to max(1, largest reference entry)."""
     tol = 1024 * np.finfo(np.float32).eps
     prog, z, seed = f7_case(10, 8)
     with jax.enable_x64(True):

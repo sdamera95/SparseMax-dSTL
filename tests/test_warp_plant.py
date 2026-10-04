@@ -1,8 +1,4 @@
-"""sparsemax_dstl.warp_plant (E027): the Panda on the MuJoCo-Warp adjoint fork.
-
-Needs a CUDA device (graph capture); run with CUDA_VISIBLE_DEVICES pinned to one GPU. The
-derivative check against mjx_implicit runs JAX in float64 on the CPU.
-"""
+"""Tests of the Panda on the MuJoCo Warp adjoint fork (sparsemax_dstl.warp.plant). Needs a CUDA device."""
 import numpy as np
 import pytest
 import warp as wp
@@ -50,10 +46,8 @@ def test_graph_replay_matches_eager(WP):
 
 
 def test_vjp_is_the_chain_of_interval_vjps(WP):
-    """The rollout's VJP with cotangents on every sample equals back-propagating interval by
-    interval through one-interval rollouts from the rollout's own sample states (checkpointed
-    backward across intervals, cotangent injection at the boundaries, the warm start reset at
-    each interval)."""
+    """The rollout's VJP with cotangents on every sample equals back-propagating interval by interval
+    through one-interval rollouts from the rollout's own sample states."""
     x0, V = _start(1, 3)
     C = np.random.default_rng(2).standard_normal((1, 4, 14))
     pl = WP.Plant(1, 3)
@@ -72,10 +66,8 @@ def test_vjp_is_the_chain_of_interval_vjps(WP):
 
 
 def test_clamp_leaf(WP):
-    """At home, joint 1's axis is vertical, so tau_g,1 = 0, and joint 2 carries gravity
-    (tau_g,2 = -25.2 N m, MuJoCo C). A command at -u_max on joint 2 saturates the joint-level
-    clamp (s < -u_max): its control column is exactly zero. A command exactly at +u_max on joint 1 (s = u_max, the boundary) gets the
-    derivative from inside the range: equal to the column at 0.9999 u_max."""
+    """At home, a command at -u_max on joint 2 saturates the clamp and its control column is exactly zero;
+    a command exactly at +u_max on joint 1 gets the derivative from inside the range, equal to the column at 0.9999 u_max."""
     q = P.model().key_qpos[0]
     x0 = np.repeat(np.concatenate([q, np.zeros(7)])[None], 14 * 2, 0)
     V = np.zeros((28, 1, 7))

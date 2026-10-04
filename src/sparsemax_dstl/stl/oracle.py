@@ -1,13 +1,5 @@
-"""Brute-force test oracles, analytic references and random formulas.
-
-This module is for tests and gates only. rho, trace, smooth_rho, the rational
-sparsemax functions and path_budget are labeled brute-force oracles: they loop
-over times and window entries in plain Python on purpose and never build a
-program or call JAX. rho reads a formula as written, with negation,
-implication and Release taken straight from their definitions and no negation
-normal form. analytic_derivatives is a vectorized analytic reference that
-reuses a compiled program's time expansion but no automatic differentiation.
-"""
+"""Test oracles: brute-force robustness, sparsemax and budget in plain-Python loops over times and window
+entries, closed-form derivatives of a compiled program, and random formulas."""
 from fractions import Fraction
 
 import numpy as np
@@ -22,7 +14,7 @@ def _window(t, a, b, T, boundary):
 
 
 def rho(f, z, t, boundary="strict"):
-    """Exact robustness of f at time t for scores z of shape (T, P)."""
+    """Brute-force oracle: exact robustness of the formula f as written at time t, scores z of shape (T, P)."""
     T = z.shape[0]
     if isinstance(f, Atom):
         if not 0 <= t < T:
@@ -63,7 +55,7 @@ def rho(f, z, t, boundary="strict"):
 
 
 def trace(f, z, boundary="strict"):
-    """Robustness at every time the boundary mode defines."""
+    """Brute-force oracle: rho at every time the boundary mode defines."""
     T = z.shape[0]
     n = T - horizon(f) if boundary == "strict" else T
     return np.array([rho(f, z, t, boundary) for t in range(n)])
@@ -93,14 +85,8 @@ def _local(Z, valid, kind, semantics, beta):
 
 
 def _local_sparsemax(S, valid, kind, gamma):
-    """Rows of y = +-z (masked entries -inf): threshold, weights and Hessian in closed form.
-
-    p_i = (y_i - theta)_+ / gamma with sum_i (y_i - theta)_+ = gamma; the support
-    size k is the largest rank j with gamma + j u_j > u_1 + ... + u_j for the
-    sorted u. M = p.y - gamma/2 |p|^2; the lower maximum adds gamma/(2m), the
-    lower minimum is -M(-z) - gamma/2. Hessian +-(Diag(s) - s s^T/k)/gamma on the
-    support indicator s, for a maximum and a minimum respectively.
-    """
+    """Value, weights and Hessian of a sparsemax lower extremum (Eqs. (6) and (7) of the paper) for rows S = z
+    at a maximum and S = -z at a minimum, masked entries -inf."""
     sign = 1.0 if kind == "max" else -1.0
     u = -np.sort(-S, axis=-1)
     total = np.cumsum(np.where(np.isfinite(u), u, 0.0), axis=-1)
@@ -116,16 +102,8 @@ def _local_sparsemax(S, valid, kind, gamma):
 
 
 def analytic_derivatives(program, z, semantics="exact", beta=None):
-    """Root values, gradients and Hessians with respect to the flattened scores.
-
-    An analytic reference, not automatic differentiation: every reduction
-    applies its closed-form weights w and Hessian (zero for exact; for lse
-    beta (Diag(w) - w w^T) at a maximum and its negative at a minimum; for
-    sparsemax, with beta read as gamma, see _local_sparsemax), and the
-    chain rule composes them, value by value, in float64 NumPy. z has shape
-    (T, P); the outputs have shapes (L,), (L, T*P) and (L, T*P, T*P). Exact
-    semantics split the weight equally among tied entries, as JAX does.
-    """
+    """Root values (L,), gradients (L, T*P) and Hessians (L, T*P, T*P) in the scores z of shape (T, P), composed
+    by the chain rule from each reduction's closed-form weights and Hessian; beta is gamma under "sparsemax"."""
     z = np.asarray(z, dtype=np.float64)
     T, P = z.shape
     n = T * P
@@ -150,14 +128,8 @@ def analytic_derivatives(program, z, semantics="exact", beta=None):
 
 
 def smooth_rho(f, z, t, max_reduce, min_reduce):
-    """Value at t of an NNF formula under reductions on Python lists, strict boundary.
-
-    A brute-force oracle for smooth semantics that never builds a program: it
-    recurses on the formula, with Until and Release grouped as in program.py
-    (an inner reduction over psi(t+k), phi(t), ..., phi(t+k) for each witness
-    offset k, then an outer reduction over k). With Fraction scores and the
-    rational reductions below it is exact.
-    """
+    """Brute-force oracle: value at t of an NNF formula under reductions on Python lists, strict boundary. Until
+    and Release reduce right(t+k), left(t), ..., left(t+k) for each offset k in [a, b], and then reduce over k."""
     if isinstance(f, Atom):
         v = z[t][f.index]
         return -v if f.negated else v
@@ -180,7 +152,7 @@ def smooth_rho(f, z, t, max_reduce, min_reduce):
 
 
 def rational_sparsemax(z, gamma):
-    """Exact M_gamma(z), weights p and threshold theta for a list of Fractions."""
+    """Brute-force oracle: M_gamma(z), weights p and threshold theta (Eqs. (5), (6)) for a list of Fractions."""
     u = sorted(z, reverse=True)
     k = max(j for j in range(1, len(u) + 1) if gamma + j * u[j - 1] > sum(u[:j]))
     theta = (sum(u[:k]) - gamma) / k
@@ -197,8 +169,8 @@ def rational_lower_min(z, gamma):
 
 
 def path_budget(f, t, local):
-    """Largest sum of local errors local(m) along any root-to-leaf path of the
-    time-expanded graph of an NNF formula at time t, by enumeration."""
+    """Brute-force oracle: largest sum of local(m) over the nodes of a root-to-leaf path of the
+    time-expanded graph of an NNF formula at time t, m the number of entries of a node."""
     if isinstance(f, Atom):
         return 0.0
     if isinstance(f, (And, Or)):

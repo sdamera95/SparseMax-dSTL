@@ -18,9 +18,8 @@ def scores(xy, regions):
 
 
 def matched(name, eps):
-    """(max_reduce, min_reduce) at worst-case error eps per node: planar.matched for 'exact', 'lse_plain',
-    'gm01', 'gm10', 'sparsemax', and the sound log-sum-exp for 'lse_sound' (beta = log(m) / eps per node,
-    m the node's valid entries; one entry exact)."""
+    """(max_reduce, min_reduce): planar_jax.matched, and for 'lse_sound' the sound log-sum-exp with
+    beta = log(m) / eps at a node of m valid entries (Equation (15) of the paper)."""
     if name != "lse_sound":
         return P0.matched(name, eps)
 

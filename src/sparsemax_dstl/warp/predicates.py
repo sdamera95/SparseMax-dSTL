@@ -1,36 +1,5 @@
-"""The shared-workspace atoms of tasks.workspace in Warp, differentiated by Warp's tape (E030).
-
-Same values as tasks.workspace.scores(mx, plant, sc, inst, X): for each sample t (with the
-human spheres of sample t) and in the order of workspace.layout(),
-
-    pick, handover   (r_goal - n+(p - g)) / r_goal
-    zone             (n-(p - z) - zone_radius) / zone_radius
-    speed_i          (v_slow - n+(c_i')) / v_slow
-    sep_ij           (n-(c_i - h_j) - R_ij) / R_ij,   R_ij = r_i + r_j + d_min
-    slow_ij          (n-(c_i - h_j) - S_ij) / S_ij,   S_ij = r_i + r_j + d_slow
-
-with n+(x) = sqrt(|x|^2 + eps^2), n-(x) = |x|^2 / (n+(x) + eps), eps_length for lengths and
-eps_speed for speeds; p the site, c_i the robot sphere centres, c_i' their velocities.
-
-KINEMATICS. The fork's forward kinematics kernels are compiled without generated adjoints
-(mujoco_warp/_src/smooth.py:43, enable_backward False), and its kinematics backward hook maps
-only site-position cotangents to qpos (adjoint.py:446-451), with no point velocities. So this
-module computes the chain kinematics itself, from the fork Model's own arrays (body_pos,
-body_quat, jnt_pos, jnt_axis, qpos0), as MuJoCo's mj_kinematics does for a hinge: frame of the
-parent, then body_pos and body_quat, then the anchor and axis of the body's joint, the joint
-rotation by q - qpos0 about the axis through the anchor, then normalization. The velocity of a
-point c on body b is J(q) qdot = sum_j qdot_j a_j x (c - x_j) over the hinges j on b's chain
-(the derivative workspace.points takes with jax.jvp), accumulated along the chain as
-omega_b = sum_j qdot_j a_j and m_b = sum_j qdot_j a_j x x_j, so that c' = omega_b x c - m_b.
-
-Three kernels, each compiled with enable_backward=True and recorded on the caller's wp.Tape:
-_chain (per sample: the frames, omega and m of every body), _points (per sample and point: the
-site and the robot sphere centres and velocities), _atoms (per world, sample and atom). The
-chain loop runs over a constant range, so Warp unrolls it and its generated adjoint covers the
-loop-carried frame. Supported models: a serial chain (body b's parent is b - 1), at most one
-hinge per body, nq = nv (checked by chain_arrays). The tape gradient with respect to the
-sampled qpos and qvel is the state cotangent the plant's vector-Jacobian product pulls back.
-"""
+"""The predicates of the manipulator example (Section V-B) as Warp kernels differentiated by Warp's
+tape, with the kinematics and point velocities of a serial hinge chain from MuJoCo's model arrays."""
 from contextlib import nullcontext
 from functools import cache
 
@@ -50,6 +19,7 @@ def _kernels(dtype):
 
     @wp.func
     def n_minus(e: vec3, eps: dtype):
+        # sqrt(|e|^2 + eps^2) - eps
         s = wp.dot(e, e)
         return s / (wp.sqrt(s + eps * eps) + eps)
 
@@ -60,6 +30,8 @@ def _kernels(dtype):
               jnt_dadr: wp.array(dtype=int), nbody: int,
               xpos: wp.array2d(dtype=vec3), xquat: wp.array2d(dtype=quat), omega: wp.array2d(dtype=vec3),
               mom: wp.array2d(dtype=vec3)):
+        # om = sum_j qd_j axis_j and mm = sum_j qd_j axis_j x anchor_j over the hinges up to body b;
+        # a point c of body b has velocity om x c - mm
         w = wp.tid()
         zero = dtype(0.0)
         pos = vec3(zero, zero, zero)
@@ -104,6 +76,8 @@ def _kernels(dtype):
               hr: wp.array(dtype=dtype), rr: wp.array(dtype=dtype), goals: wp.array2d(dtype=vec3), zone: vec3,
               r_goal: dtype, r_zone: dtype, v_slow: dtype, d_min: dtype, d_slow: dtype, eps_l: dtype, eps_v: dtype,
               T: int, n_r: int, n_h: int, Z: wp.array3d(dtype=dtype)):
+        # atom a: 0 pick, 1 handover, 2 zone, then n_r speeds, n_r n_h separations (d_min) and
+        # n_r n_h slow-down distances (d_slow); P[:, 0] is the site, P[:, 1:] the robot spheres
         b, t, a = wp.tid()
         w = b * T + t
         if a < 2:
@@ -130,8 +104,8 @@ def _kernels(dtype):
 
 
 def chain_arrays(mjm):
-    """Host arrays of the serial chain for _chain, with quaternions reordered to Warp's (x, y, z, w);
-    raises NotImplementedError for a model outside the supported class (module docstring)."""
+    """Model arrays of a serial chain (at most 16 bodies, at most one hinge per body, nq = nv) for
+    the chain kernel, with quaternions reordered to Warp's (x, y, z, w)."""
     nb = mjm.nbody
     if nb > MAX_BODIES or mjm.nq != mjm.nv or np.any(mjm.jnt_type != mujoco.mjtJoint.mjJNT_HINGE):
         raise NotImplementedError("a chain of at most " + str(MAX_BODIES) + " bodies with hinge joints is expected")
@@ -145,16 +119,8 @@ def chain_arrays(mjm):
 
 
 class Predicates:
-    """The atoms of tasks.workspace.scores in Warp for B worlds of T samples (module docstring).
-
-    Args:
-        plant: a tasks.workspace.Plant (model, site, bodies).
-        sc: the tasks.workspace.Scenario (thresholds, zone, sphere spacing, eps).
-        T: samples per world.
-        nworld: B.
-        dtype: wp.float32 or wp.float64.
-        device: a Warp device.
-    """
+    """The predicate values Z (B, T, P) of nworld = B worlds with T samples each, for a
+    tasks.workspace.Plant and Scenario; set_instance() gives the targets and the person's spheres."""
 
     def __init__(self, plant, sc, T, nworld=1, dtype=wp.float32, device="cuda:0"):
         self.k = _kernels(dtype)
@@ -194,7 +160,8 @@ class Predicates:
             self.goals = wp.array(goals, dtype=self.k["vec3"])
 
     def frames(self, q, v, tape=None):
-        """Body frames, omega and m (B T, nbody) from q, v (B T, nq), recorded on tape if given."""
+        """Body positions, orientations and the velocity sums om and mm, each (B T, nbody), from q, v
+        (B T, nq); the launch goes on the tape if one is given."""
         W, nb, g = q.shape[0], self.nbody, tape is not None
         with wp.ScopedDevice(self.device):
             out = [wp.zeros((W, nb), dtype=t, requires_grad=g) for t in (self.k["vec3"], self.k["quat"], self.k["vec3"], self.k["vec3"])]
@@ -203,8 +170,8 @@ class Predicates:
         return out
 
     def scores(self, q, v, tape=None):
-        """Atoms Z (B, T, P) from the sampled states q, v (B T, nq), world-major. With a tape the
-        three launches are recorded on it (q and v need requires_grad); Z then has a gradient."""
+        """Atoms Z (B, T, P) from the sampled states q, v (B T, nq), world-major. With a tape (q and
+        v with requires_grad) the three launches go on it and Z has a gradient."""
         g = tape is not None
         W = self.B * self.T
         if q.shape[0] != W:

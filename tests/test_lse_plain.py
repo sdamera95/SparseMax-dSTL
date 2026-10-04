@@ -1,12 +1,4 @@
-"""The plain log-sum-exp ("lse_plain", E034) in the JAX evaluator and the Warp backend.
-
-lse_plain is the sound lower log-sum-exp ("lse") without the shift -log(m)/beta at
-maximum nodes: the two agree at minimum nodes, differ by exactly log(m)/beta at maximum
-nodes, and have the same adjoint weights. Tolerances follow tests/test_stl_warp.py:
-JAX against Warp allows 1024 eps relative to max(1, largest reference entry), eps the
-unit roundoff of the dtype; identities that run the same code path in one backend are
-compared for equality, and the shift identities in float64 to 1e-12.
-"""
+"""The plain log-sum-exp ("lse_plain") against the sound log-sum-exp ("lse"), in the JAX evaluator and the Warp backend."""
 import contextlib
 
 import jax
@@ -30,6 +22,7 @@ def x64(dtype):
 
 
 def close(a, b, tol):
+    """max |a - b| <= tol * max(1, max |b|); the JAX-Warp comparisons use tol = 1024 eps, eps the unit roundoff of the dtype."""
     return np.max(np.abs(a - b), initial=0.0) <= tol * max(1.0, np.max(np.abs(b), initial=0.0))
 
 
@@ -142,10 +135,7 @@ def test_max_shift_warp():
     d = warp_steps(prog, z, "lse_plain", p)[inner] - warp_steps(prog, z, "lse", p)[inner]
     expected = np.where(pr > 0, np.log(step.count) / np.where(pr > 0, pr, 1.0), 0.0)
     assert np.any(pr == 0) and np.max(np.abs(d - expected)) <= 1e-12
-    # the adjoint weights are the same: when the maximum is the root (the Until's outer step,
-    # over an inner minimum that both semantics evaluate alike) the shift only adds a
-    # constant per row, so the tape gradients agree. Below a minimum they need not: there
-    # the shift log(m)/beta differs between rows and changes the minimum's weights.
+    # with the maximum as the root the shift is a constant per row and the gradients agree; below a minimum they need not
     prog = stl.compile_formula(stl.Until((1, 4), stl.Atom(0), stl.Atom(1)), 12)
     assert prog.steps[-1].kind == "max"
     seed = rng.standard_normal((3, prog.steps[-1].length))
@@ -162,24 +152,8 @@ T, EPS, DELTA = 100, 0.4, 0.1
 
 
 def until_case():
-    """Until([40, 90], zone, pick) over T = 100 samples, zone = atom 0, pick = atom 1.
-
-    The zone score is +1 except at samples 5, 6 and 7, where it is -delta = -0.1; the
-    pick score is 1 on samples 40 to 99 and -1 before. Every witness k in [40, 90] of
-    the root at t = 0 reads the zone on [0, k], which contains the three dips, so every
-    inner minimum is exactly -delta and the exact robustness is -delta. The outer
-    maximum at t = 0 has 51 witnesses.
-
-    Margins at eps = 0.4 with the matched parameters (beta = log(m)/eps per node): the
-    inner minimum over m = k + 2 = 42 to 92 entries has three tied lowest entries, so
-    the sound (and plain) inner value is about -delta - log(3)/beta_in, between -0.218
-    (k = 40) and -0.197 (k = 90); the entries at +1 add under 2e-3. The sound outer
-    maximum lies at or below the exact maximum of those values, so the sound value is
-    about -0.205, negative. The plain outer maximum adds log(51)/beta_out = eps = 0.4,
-    which exceeds delta plus the inner minimum's error (about 0.22), so the plain value
-    is about +0.195. Sparsemax is a lower bound, so its value is at most -delta (about
-    -0.371). Each sign holds with a margin of at least 0.1.
-    """
+    """Until([40, 90], zone, pick) over T = 100 samples: the zone (atom 0) is 1 except -DELTA at samples 5 to 7,
+    the pick (atom 1) is 1 from sample 40 and -1 before. The exact robustness is -DELTA."""
     prog = stl.compile_formula(stl.Until((40, 90), stl.Atom(0), stl.Atom(1)), T)
     z = np.ones((1, T, 2))
     z[0, 5:8, 0] = -DELTA
@@ -198,7 +172,7 @@ def test_until_plain_reports_satisfied():
     wx = {s: robustness_warp(prog, wp.array(z, dtype=wp.float64, device="cpu"), s, matched_param(prog, s, EPS)).numpy()[0, 0]
           for s in ("lse", "lse_plain", "sparsemax")}
     assert exact == -DELTA
-    for r in (jx, wx):  # the two evaluators
+    for r in (jx, wx):
         assert r["lse_plain"] > 0.1
         assert r["lse"] < -0.1 and r["sparsemax"] < -0.1
         # the outer node is the root: plain minus sound is log(51)/beta_out = eps, to 1e-12
@@ -219,7 +193,7 @@ def test_jax_warp_scalar(dtype, beta):
     for p in random_programs(0, 12):
         cases.append((p, rng.standard_normal((3, p.T, 3)).astype(dtype)))
     with x64(dtype):
-        for prog, z in cases:  # programs
+        for prog, z in cases:
             seed = rng.standard_normal((z.shape[0], prog.steps[-1].length)).astype(dtype)
             w, gw = warp_vjp(prog, z, "lse_plain", beta, seed)
             j, gj = jax_vjp(prog, z, "lse_plain", beta, seed)
@@ -238,7 +212,7 @@ def test_jax_warp_matched(dtype):
     for p in random_programs(1, 8):
         cases.append((p, rng.standard_normal((3, p.T, 3)).astype(dtype), 0.3))
     with x64(dtype):
-        for prog, z, e in cases:  # programs
+        for prog, z, e in cases:
             B, P = z.shape[0], z.shape[2]
             seed = rng.standard_normal((B, prog.steps[-1].length)).astype(dtype)
             ev = Evaluator(prog, "lse_plain", matched_param(prog, "lse_plain", e), B, dt, "cpu", P=P)

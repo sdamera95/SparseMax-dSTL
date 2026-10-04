@@ -1,18 +1,5 @@
-"""STL formulas over sampled traces, and their negation normal form.
-
-A formula refers to predicates by integer index into a leaf-score array whose
-last axis lists predicate scores, positive when satisfied. Intervals are
-closed integer sample offsets [a, b] with 0 <= a <= b. Operators:
-
-    Atom(i)            score of predicate i (Atom(i, True) is its negation)
-    Not, And, Or, Implies
-    Always(I, f), Eventually(I, f)
-    Until(I, f, g)     closed prefix: f must also hold at the witness time
-    Release(I, f, g)   exact dual of the closed-prefix Until
-
-And and Or are n-ary. Their grouping is kept exactly as written, because the
-smooth reductions are not associative.
-"""
+"""STL formulas over sampled traces, and their negation normal form. An atom indexes the
+last axis of a score array, positive when satisfied; an interval is offsets a, ..., b."""
 from dataclasses import dataclass
 
 
@@ -80,6 +67,8 @@ class Eventually:
 
 @dataclass(frozen=True)
 class Until:
+    """Until((a, b), left, right) at sample t: right holds at some sample t+k, a <= k <= b,
+    and left holds at every sample t, ..., t+k."""
     interval: tuple
     left: object
     right: object
@@ -90,6 +79,7 @@ class Until:
 
 @dataclass(frozen=True)
 class Release:
+    """The dual of Until: Release(I, f, g) is Not(Until(I, Not(f), Not(g)))."""
     interval: tuple
     left: object
     right: object

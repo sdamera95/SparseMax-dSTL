@@ -1,9 +1,4 @@
-"""Planar two-link arm predicate scores as a Warp kernel.
-
-Computes reach, clearance and elbow exactly as twolink.py does, for X of shape
-(B, T, 2) into scores of shape (B, T, 3). The kernel is loop-free, so Warp's
-generated adjoint is used and the launch is recorded on a tape as usual.
-"""
+"""Planar two-link arm scores (reach, clearance, elbow) as a Warp kernel, as in twolink.py: X (B, T, 2) into scores (B, T, 3)."""
 from typing import Any
 
 import warp as wp

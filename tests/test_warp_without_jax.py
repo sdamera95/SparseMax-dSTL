@@ -1,8 +1,4 @@
-"""The Warp side in a process where JAX, MJX and the optional packages of the examples cannot be imported: imports,
-the evaluator, the predicates, the manipulator's specification and the unicycle's Warp chain with its solver, CPU,
-float64.
-
-The reference values come from the JAX evaluator, the MJX predicates and the JAX chain in the test process."""
+"""The Warp backend in a process where JAX, MJX and the optional packages of the examples cannot be imported, against the JAX results of the test process."""
 import json
 import pkgutil
 import subprocess

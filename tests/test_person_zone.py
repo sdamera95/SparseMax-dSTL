@@ -1,5 +1,4 @@
-"""E039: the working person's script (tasks.workspace.until_work_script) and the pre-run check's bookkeeping
-(examples.e039_person_zone)."""
+"""Tests of the working person's script (tasks.workspace.until_work_script) and the bookkeeping of examples.e039_person_zone."""
 import numpy as np
 
 from examples import e034_until_demo as D

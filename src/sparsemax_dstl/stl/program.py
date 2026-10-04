@@ -1,53 +1,5 @@
-"""Time expansion of an NNF formula into a static list of reduction steps.
-
-Every node of the expanded graph is either an atom step, which copies one
-signed leaf-score trace, or a reduction step,
-
-    out[r] = max or min over k < count[r] of src[index[r, k]],
-
-where src concatenates the output vectors of the step's sources along their
-last axis. Entries at k >= count[r] are padding; their index points at a valid
-position and they are masked out. Each reduction step is one direct
-multi-input reduction, so smoothing it changes nothing about the grouping.
-Both backends evaluate the same steps.
-
-Boundary modes. "strict" evaluates a node at time t only if every sample it
-reads exists, as both drafts require; every window keeps its full arity and a
-node with horizon h has an output of length T - h. "clip" keeps length T for
-every node and drops window entries past the trace end, as R-DTLGN's labeler
-and isaac6-parkour's referee do; an empty window gives the identity of its
-extremum (+inf for a minimum, -inf for a maximum). Only exact semantics accept
-clip programs.
-
-The closed-prefix Until at time t with witness offset k in [a, b] reads
-psi(t+k) and phi(t), ..., phi(t+k). It expands into two steps: an inner
-minimum over those k+2 values for every (t, k), and an outer maximum over the
-witnesses. Release swaps minimum and maximum.
-
-Reachable rows (E020). By default every node is evaluated at every time the
-boundary mode defines. compile_formula(..., reads=...) instead keeps only the
-rows that the given reads reach. A read is
-
-    (g, times)               the subformula g at the given sample times, or
-    (g, times, witnesses)    rows (t, k) of the inner step of an Until or Release g,
-                             with k the witness offset, a <= k <= b.
-
-The needed times propagate from the reads to the children, parents first: a
-conjunction or disjunction at t needs its children at t, a window [a, b] at t
-needs its child on [t+a, t+b] (clipped at the trace end in clip mode), and an
-Until or Release at t needs all its witness rows at t, which need psi on
-[t+a, t+b] and phi on [t, t+b]. A kept row holds the same valid entries in the
-same order as the unpruned program's row at the same (node, time), so every
-reduction sees the same vector. Atom steps always keep all T samples (they copy
-a trace and reduce nothing), so evaluate(), budget() and the pattern
-recursions run unchanged on pruned programs.
-
-Bookkeeping. Step.times is the sample time of each row of a reduction step, or
-None when row r is time r (the unpruned layout, and every atom). Program.nodes
-maps each expanded NNF subformula to its step (the outer step of an Until or
-Release), Program.inner maps an Until or Release to its inner step, and
-Program.outputs locates each read as (step, rows). locate() and read() use them.
-"""
+"""Expansion of a formula over T samples into a list of steps. Boundary "strict" keeps a node only at the times
+where every sample it reads exists; "clip" keeps every time and drops the window entries past the last sample."""
 from dataclasses import dataclass
 
 import numpy as np
@@ -57,6 +9,8 @@ from .formula import Always, And, Atom, Eventually, Or, Release, Until, atoms, h
 
 @dataclass(frozen=True, eq=False)
 class Step:
+    """An atom step is sign * scores[..., atom]; a reduction step is out[r] = max or min over k < count[r] of
+    src[index[r, k]], with src the concatenated outputs of sources and the entries at k >= count[r] padding."""
     kind: str  # "atom", "max" or "min"
     length: int
     label: str
@@ -89,12 +43,8 @@ class Program:
 
 
 def compile_formula(formula, T, boundary="strict", reads=None):
-    """Expand a formula over T samples into a Program. Negation is pushed to atoms first.
-
-    reads is None (every node at every time) or a sequence of reads (g, times) or
-    (g, times, witnesses), see the module docstring; the program then keeps only the
-    rows they reach, and Program.outputs locates them in the given order.
-    """
+    """Expand a formula over T samples into a Program. reads keeps only the rows its entries need: (g, times),
+    the subformula g at those times, or (g, times, witnesses), rows (t, k) of an Until's or Release's inner step."""
     if boundary not in ("strict", "clip"):
         raise ValueError("boundary must be 'strict' or 'clip'")
     nnf = to_nnf(formula)
@@ -103,15 +53,15 @@ def compile_formula(formula, T, boundary="strict", reads=None):
     order = _postorder(nnf, [], set())
     need = None
     if reads is not None:
-        reads = [_read(r, order, T, boundary) for r in reads]  # reads, one per node family
+        reads = [_read(r, order, T, boundary) for r in reads]
         need = _needed(order, reads, T, boundary)
     steps, nodes, inner = [], {}, {}
-    for f in order:  # formula structure, children first
+    for f in order:
         _expand(f, T, boundary, steps, nodes, inner, need)
     program = Program(nnf, tuple(steps), T, boundary, max(atoms(nnf)) + 1, nodes, inner)
     if reads is None:
         return program
-    outputs = tuple(locate(program, g, t, k) for g, t, k in reads)  # reads
+    outputs = tuple(locate(program, g, t, k) for g, t, k in reads)
     return Program(nnf, tuple(steps), T, boundary, max(atoms(nnf)) + 1, nodes, inner, outputs)
 
 
@@ -135,7 +85,7 @@ def _postorder(f, out, seen):
     """Distinct NNF subformulas, children before parents, in the order the expansion adds them."""
     if f in seen:
         return out
-    for c in _children(f):  # formula structure
+    for c in _children(f):
         _postorder(c, out, seen)
     seen.add(f)
     out.append(f)
@@ -176,15 +126,15 @@ def _needed(order, reads, T, boundary):
     L = {f: _length(T, horizon(f), boundary) for f in order}
     out = {f: np.zeros(L[f], bool) for f in order}
     inn = {f: np.zeros(L[f], bool) for f in order if isinstance(f, (Until, Release))}
-    for g, t, k in reads:  # reads, one per node family
+    for g, t, k in reads:
         (out if k is None else inn)[g][t] = True
     referenced = set()
-    for f in reversed(order):  # formula structure, parents before children
+    for f in reversed(order):  # parents before children
         M = out[f]
         if f in referenced and not M.any() and not (f in inn and inn[f].any()):
             M[0] = True  # clip mode: a parent reads only padding here, which points at row 0
         if isinstance(f, (And, Or)):
-            for c in f.children:  # formula structure
+            for c in f.children:
                 out[c][:L[f]] |= M
         elif isinstance(f, (Always, Eventually)):
             a, b = f.interval
@@ -262,6 +212,8 @@ def _expand(f, T, boundary, steps, nodes, inner, need):
 
 
 def _expand_until(f, L, T, boundary, steps, nodes, inner, need):
+    """Two steps for an Until: an inner minimum over right(t+k), left(t), ..., left(t+k) for every time t and offset
+    k in [a, b], and an outer maximum over k. Release swaps minimum and maximum."""
     a, b = f.interval
     pruned = need is not None
     t_out = np.nonzero(need[0][f])[0] if pruned else np.arange(L)
@@ -275,12 +227,12 @@ def _expand_until(f, L, T, boundary, steps, nodes, inner, need):
     t = t_in[:, None, None]
     k = a + np.arange(n_w)[None, :, None]  # witness offset
     s = np.arange(b + 1)[None, None, :]  # prefix offset
-    # A witness exists when t+k lies in both operand traces; then its prefix does too.
+    # offset k is valid when sample t+k lies in both operand traces
     n_valid = np.clip(min(L_left, L_right) - (t_in + a), 0, n_w)
     witness_ok = np.arange(n_w)[None, :] < n_valid[:, None]
     count = np.where(witness_ok, k[..., 0] + 2, 0)
     valid = np.arange(b + 2)[None, None, :] < count[..., None]
-    # Row (t, k) holds psi(t+k) then phi(t), ..., phi(t+k); src = concat(psi, phi).
+    # row (t, k) holds right(t+k), then left(t), ..., left(t+k); src = concat(right, left)
     witness = np.broadcast_to(t + k, (t_in.size, n_w, 1))
     prefix = np.broadcast_to(t + s, (t_in.size, n_w, b + 1))
     times = np.where(valid, np.concatenate([witness, prefix], axis=-1), 0)
@@ -306,7 +258,7 @@ def _expand_until(f, L, T, boundary, steps, nodes, inner, need):
 
 def locate(program, g, times, witnesses=None):
     """(step, rows) holding the subformula g at the given times, or with witnesses the rows
-    (t, k) of the inner step of the Until or Release g. Works for pruned and unpruned programs."""
+    (t, k) of the inner step of the Until or Release g."""
     g = to_nnf(g)
     t = np.atleast_1d(np.asarray(times, np.int64))
     if witnesses is None:

@@ -48,7 +48,7 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-# MuJoCo Warp with reverse-mode derivatives: the adjoint branch of the etaoxing fork, pinned by commit
+# MuJoCo Warp with reverse-mode derivatives: the adjoint branch of the fork at this URL, pinned by commit
 mujoco-warp = { git = "https://github.com/etaoxing/mujoco_warp.git", rev = "357a75d60a56d67d476942a1b6e54b3045ee8e87" }
 
 [tool.uv]

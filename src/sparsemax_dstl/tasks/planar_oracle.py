@@ -1,30 +1,12 @@
-"""Independent NumPy evaluation of the E049 smoothings from their definitions (no JAX; it shares
-only the formula classes of sparsemax_dstl.stl.formula), used to check the JAX values.
-
-Reductions over the rows of z (R, W) with a validity mask, at worst-case error eps per node
-($m$ the number of valid entries of the row; a row with one entry is exact):
-
-- plain log-sum-exp: $\\max \\approx \\frac1\\beta \\log \\sum_i e^{\\beta z_i}$,
-  $\\min \\approx -\\frac1\\beta \\log \\sum_i e^{-\\beta z_i}$, $\\beta = \\log m / \\varepsilon$;
-- sparsemax: $Q(z) = \\max_{p \\in \\Delta} \\langle p, z\\rangle - \\frac\\gamma2 \\lVert p\\rVert^2$, the lower
-  maximum $Q(z) + \\frac{\\gamma}{2m}$ and the lower minimum $-Q(-z) - \\frac\\gamma2$,
-  $\\gamma = 2\\varepsilon / (1 - 1/m)$; the maximizer $p$ is the Euclidean projection of
-  $z / \\gamma$ onto the simplex, computed by sorting;
-- generalized-mean robustness of order $(p, q)$ (Mehdipour, Vasile, Belta, eq. 12 and 15):
-  conjunction $M_p(x)$ if $\\min x > 0$, else $-M_q(-[x]_-)$ over all $d$ entries, with
-  $M_r(x) = (\\frac1d \\sum x_i^r)^{1/r}$ and $M_0$ the geometric mean; disjunction
-  $-\\mathrm{conj}(-x)$; the until nests the prefix conjunction inside a two-entry conjunction.
-
-The formula is walked recursively over its structure (negation carried down as a flag); every
-node is evaluated only at the sample times its parent reads, with whole-array NumPy.
-"""
+"""NumPy evaluation of the smoothed robustness from the definitions of the reductions (plain log-sum-exp, sparsemax,
+generalized-mean robustness), without JAX, by a recursive walk over the formula."""
 import numpy as np
 
 from ..stl.formula import Always, And, Atom, Eventually, Not, Or, Until
 
 
 def _m(valid):
-    return np.maximum(valid.sum(1), 2).astype(float)  # one entry: exact for any parameter
+    return np.maximum(valid.sum(1), 2).astype(float)  # at least 2: log(m) and 1 - 1/m are nonzero
 
 
 def _lse(a, valid):
@@ -46,7 +28,7 @@ def project(w, valid):
 
 
 def qmax(z, gamma, valid):
-    """(Q(z), p) per row."""
+    """(Q(z), p) per row: Q(z) = max_p <p, z> - (gamma / 2) |p|^2 over the simplex and its maximizer p."""
     p = project(z / gamma[:, None], valid)
     zz = np.where(valid, z, 0.0)
     return np.sum(p * zz, 1) - gamma / 2 * np.sum(p * p, 1), p
@@ -60,6 +42,8 @@ def _power(x, r, valid):
 
 
 def gm_conj(x, valid, p, q):
+    """Generalized-mean conjunction of order (p, q) per row: the power mean M_p when every entry is positive, else
+    -M_q of |min(x, 0)| over all valid entries."""
     lo = np.min(np.where(valid, x, np.inf), 1)
     pos = lo > 0
     first = _power(np.where(valid & pos[:, None], x, 1.0), p, valid)
@@ -69,7 +53,7 @@ def gm_conj(x, valid, p, q):
 
 
 def reduce(z, valid, kind, sem, eps):
-    """Reduction of each row of z over its valid entries; kind is 'max' or 'min'."""
+    """Reduction of each row of z over its valid entries; kind is 'max' or 'min', sem a name of planar.METHODS."""
     if sem == "exact":
         return np.max(np.where(valid, z, -np.inf), 1) if kind == "max" else np.min(np.where(valid, z, np.inf), 1)
     if sem == "lse_plain":
@@ -98,7 +82,7 @@ def ev(f, S, ts, neg=False, sem="exact", eps=0.2):
     if isinstance(f, Not):
         return ev(f.child, S, ts, not neg, sem, eps)
     if isinstance(f, (And, Or)):
-        z = np.stack([ev(c, S, ts, neg, sem, eps) for c in f.children], 1)  # formula structure
+        z = np.stack([ev(c, S, ts, neg, sem, eps) for c in f.children], 1)
         kind = "min" if isinstance(f, And) != neg else "max"
         return reduce(z, np.ones(z.shape, bool), kind, sem, eps)
     if isinstance(f, (Always, Eventually)):
@@ -112,6 +96,8 @@ def ev(f, S, ts, neg=False, sem="exact", eps=0.2):
 
 
 def until(f, S, ts, sem, eps):
+    """phi U_[a, b] psi at times ts: for each k in [a, b] the minimum of psi at t + k and phi at t, ..., t + k, then
+    the maximum over k. The generalized-mean robustness nests the minimum over phi in a two-entry minimum."""
     a, b = f.interval
     ks = np.arange(a, b + 1)
     psi = _gather(f.right, S, ts, False, sem, eps, ks)  # (n_t, n_w)
@@ -139,9 +125,8 @@ def until_rows(phi, psi, a, b):
 
 
 def until_grad_closed(phi, psi, a, b, sem, eps):
-    """Derivative of the flat until at t = 0 with respect to phi (T,), from the closed forms of the
-    reductions' derivatives: softmax and softmin weights for the plain log-sum-exp, the sparsemax
-    projections for sparsemax (the outer weights times the inner weights, summed over witnesses)."""
+    """Derivative of the until at t = 0 with respect to phi (T,) from the closed-form weights of the reductions,
+    for 'lse_plain' and 'sparsemax'."""
     row, valid = until_rows(phi, psi, a, b)
     if sem == "lse_plain":
         beta = np.log(_m(valid)) / eps

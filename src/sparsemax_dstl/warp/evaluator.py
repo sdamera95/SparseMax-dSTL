@@ -1,87 +1,5 @@
-"""Exact and lower log-sum-exp STL robustness in Warp, with hand-written adjoints.
-
-Evaluates the same Program as semantics.evaluate. All step outputs live in one
-flat buffer vals of shape (B, N); step v writes vals[:, offsets[v]:offsets[v] +
-length_v]. A reduction step reads its entries through a global address table
-built on the host, addr[r, k] = position in vals of window entry k of row r.
-
-Warp's generated adjoints are wrong for reductions written as dynamic loops
-(the loop mutates an accumulator, which its codegen flags as possibly not
-differentiable), so no kernel in this module is recorded on a tape. Each
-forward launch is followed by tape.record_func with a hand-written adjoint
-kernel; the tape replays those closures in reverse program order, so the
-adjoint of a step's output is complete before that step's adjoint runs.
-
-With y = s z (s = 1 for a maximum, s = -1 for a minimum), c = max_k y_k, and m
-valid entries, a reduction returns
-
-    exact      s c
-    lse        s (c + log sum_k exp(beta (y_k - c)) / beta) - [max] log(m) / beta
-    lse_plain  s (c + log sum_k exp(beta (y_k - c)) / beta)
-
-lse_plain is the plain log-sum-exp in common use: the same as lse at a minimum,
-and without the shift log(m) / beta at a maximum. Its maximum lies between the
-exact maximum and the exact maximum plus log(m) / beta, so it is not a lower
-bound and can report a violated specification as satisfied.
-
-Adjoint weights: exact splits the output adjoint equally among all valid
-entries equal to the extremum (the jnp.max / jnp.min convention); lse and
-lse_plain use w_k = exp(beta (y_k - c)) / sum_j exp(beta (y_j - c)) (the shift
-is a constant, so the two have the same weights).
-
-sparsemax (param gamma) computes M_gamma(y) = c + theta + gamma/2 sum_k p_k^2,
-with p_k = (y_k - c - theta)_+ / gamma and sum_k (y_k - c - theta)_+ = gamma,
-and returns M + gamma/(2m) for a maximum and -M(-z) - gamma/2 for a minimum
-(operators.lower_max and lower_min). The threshold theta of u_k = y_k - c solves
-g(theta) = gamma for g(tau) = sum_k (u_k - tau)_+, which decreases from
-g(-gamma) >= gamma to g(0) = 0. _threshold halves the bracket [-gamma, 0]
-BISECTIONS times, each a pass over the node's values, and then recomputes theta
-in closed form: with S the entries above the bracket's midpoint, theta = (sum_S
-u - gamma) / |S|, and S is recounted as the entries above theta (later recounts
-only raise the cut) until its size repeats, so that S = {k : u_k > theta}. The
-sum runs over S in index order, as the search below summed it, so where the two
-supports agree theta equals the search's bit for bit (E028). A pass costs O(m),
-the threshold O(m (BISECTIONS + recounts)). _threshold_search, the O(m^2)
-search this module used before E028, stays as a brute-force test oracle: entry
-i is in the support exactly when gamma + k_i u_i > S_i, where k_i and S_i
-count and sum the entries u_j >= u_i. The adjoint returns the weights p_k
-directly and never differentiates the threshold.
-
-gm_pm01 and gm_exp (E036) are the generalized mean robustness (Mehdipour,
-Vasile, Belta, IEEE TAC 2025, eq. 12, 13, 15, 17; stl.semantics states the
-definition and the numerics, which _gm_forward follows step for step). With
-u_k = -s z_k a reduction returns -s conj(u) (a minimum is the conjunction, a
-maximum its De Morgan dual), and on the inner step of an Until (label ending
-".inner") it returns -s conj2(u_0, conj(u_1, ..., u_{n-1})), eq. 15's nesting:
-u_0 is psi at the witness and u_1.. the closed prefix of phi. gm_pm01 and
-gm_pm10 are the power mean robustness of order (p, q) = (0, 1) and (-10, 10)
-(ORDER; code 4, any p, q >= 1), with no parameter (any positive value; 0 per row
-still means exact). The parameter of gm_exp (code 5) is the per-node error eps,
-not beta: each conjunction of m > 1 entries uses beta = log(m) / eps (the prefix
-m = n - 1, the pair m = 2). Adjoint (_gm_adjoint): d out / d z_k = d conj / d u_k,
-which is (1/m) (u_k / M_p)^(p - 1) in the first branch of the power mean
-(G / (m u_k) for the geometric mean G), (1/m) (v_k / M_q)^(q - 1) on each
-negative entry of the second (1/m at q = 1), v = -[u]_-, the softmin weights
-exp(-beta (u_k - min u)) / sum for F_c, and exp(beta v_k) / sum_j exp(beta v_j)
-on each negative entry for -F_g(v); the nested row multiplies the prefix's
-weights by d conj2 / d prefix. Warp 1.17 has no
-expm1 or log1p; _expm1 and _log1p are Kahan's formulas from exp and log.
-
-Parameters (E028 follow-up). param is one positive number for every reduction
-node, or a 1-D array with one value per reduction row of the program (the rows
-of the reduction steps in program order, matched_param builds the matched
-protocol's); a row whose value is 0 is evaluated exactly, as the matched
-protocol evaluates nodes of arity 1. The address tables, the step offsets and
-uploaded per-row parameter arrays are built once per program and device and
-kept while the program object lives (rebuilt for a new program object); the
-first call with a new program or parameter array uploads them from the host, so
-it must run outside a CUDA graph capture, and a parameter array must not be
-changed in place after its first use. All atom steps run as one launch (and one
-adjoint launch), before the reductions.
-Evaluator holds every buffer of one program, parameter, batch size, dtype and
-device, and on a CUDA device replays the forward and the forward-plus-backward
-launch sequences as CUDA graphs.
-"""
+"""STL robustness of a compiled Program in Warp with hand-written adjoints: exact, plain and sound
+log-sum-exp, sparsemax lower extrema (Eq. 7) and generalized-mean robustness (Appendix I-A)."""
 import weakref
 from functools import partial
 from typing import Any
@@ -89,6 +7,7 @@ from typing import Any
 import numpy as np
 import warp as wp
 
+# no generated adjoints: every forward launch is paired with a hand-written adjoint kernel
 wp.set_module_options({"enable_backward": False})
 
 SEMANTICS = ("exact", "lse", "sparsemax", "lse_plain", "gm_pm01", "gm_pm10", "gm_exp")
@@ -101,7 +20,6 @@ BISECTIONS = wp.constant(40)
 @wp.kernel
 def _atoms_forward(scores: wp.array3d(dtype=Any), atom: wp.array(dtype=wp.int32), sign: wp.array(dtype=wp.int32),
                    aoff: wp.array(dtype=wp.int32), vals: wp.array2d(dtype=Any)):
-    # every atom step in one launch: step a writes sign_a * scores[:, :, atom_a] at its offset
     b, a, t = wp.tid()
     v = scores[b, t, atom[a]]
     vals[b, aoff[a] + t] = type(v)(sign[a]) * v
@@ -118,8 +36,8 @@ def _atoms_adjoint(vals_grad: wp.array2d(dtype=Any), atom: wp.array(dtype=wp.int
 @wp.func
 def _threshold(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), b: int, r: int, n: int, s: Any,
                c: Any, gamma: Any):
-    # sparsemax threshold of u_k = y_k - c, where c = max_k y_k: bisection on
-    # g(tau) = sum_k (u_k - tau)_+ over [-gamma, 0], then the exact recompute
+    # sparsemax threshold theta of u_k = s z_k - c (Eq. 6): sum_k (u_k - theta)_+ = gamma, theta in
+    # [-gamma, 0]; bisection, then the closed form on the support
     zero = type(gamma)(0.0)
     half = type(gamma)(0.5)
     lo = -gamma
@@ -133,9 +51,8 @@ def _threshold(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), b:
             lo = mid
         else:
             hi = mid
-    # theta_S = (sum_S u - gamma) / |S| is at most the threshold for every nonempty S,
-    # so the first recount, at theta of the midpoint's set, contains the support; later
-    # recounts only raise the cut and stop when the size repeats
+    # theta = (sum_S u - gamma) / |S| over S = {k : u_k > tau}; S is recounted at tau = theta, which
+    # after the first recount is only raised, until its size repeats
     tau = half * (lo + hi)
     theta = tau
     prev = int(-1)
@@ -161,7 +78,8 @@ def _threshold(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), b:
 @wp.func
 def _threshold_search(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), b: int, r: int, n: int,
                       s: Any, c: Any, gamma: Any):
-    # brute-force test oracle, O(n^2): the threshold search of E006, kept for tests and timing
+    # brute-force test oracle, O(n^2): entry i is in the support when gamma + k_i u_i > S_i, with k_i
+    # and S_i the count and the sum of the entries u_j >= u_i
     size = int(0)
     total = type(gamma)(0.0)
     for i in range(n):
@@ -183,6 +101,7 @@ def _threshold_search(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int
 def _reduce_forward(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), count: wp.array(dtype=wp.int32),
                     off: int, s: Any, is_max: int, smooth: int, beta: Any, empty: Any, oracle: int,
                     params: wp.array(dtype=Any), roff: int, per_row: int):
+    # s = 1 at a maximum and -1 at a minimum; c = max_k s z_k over the n valid entries of the row
     b, r = wp.tid()
     n = count[r]
     p = beta
@@ -200,8 +119,9 @@ def _reduce_forward(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32
         for k in range(n):
             total += wp.exp(p * (s * vals[b, addr[r, k]] - c))
         out = s * (c + wp.log(total) / p)
-        if is_max == 1 and sm == 1:  # lse_plain (3) keeps the unshifted value
+        if is_max == 1 and sm == 1:  # Eq. 14; lse_plain (3) keeps the unshifted value
             out -= wp.log(type(beta)(n)) / p
+    # Eq. 7: M_gamma(z) + gamma / (2 n) at a maximum, -M_gamma(-z) - gamma / 2 at a minimum
     if sm == 2 and n > 0:
         theta = type(beta)(0.0)
         if oracle == 1:
@@ -237,7 +157,7 @@ def _reduce_adjoint(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32
     for k in range(n):
         c = wp.max(c, s * vals[b, addr[r, k]])
     if sm == 2:
-        # custom adjoint: the sparsemax weights p_k, not the derivative of the threshold
+        # the adjoint is the sparsemax weights (Eq. 6); the threshold is not differentiated
         if n > 0:
             theta = type(beta)(0.0)
             if oracle == 1:
@@ -249,6 +169,7 @@ def _reduce_adjoint(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32
                 if q > type(beta)(0.0):
                     wp.atomic_add(vals_grad, b, addr[r, k], ybar * q)
         return
+    # log-sum-exp: softmax weights; exact: the entries equal to the extremum share the adjoint equally
     total = type(beta)(0.0)
     for k in range(n):
         y = s * vals[b, addr[r, k]]
@@ -266,7 +187,7 @@ def _reduce_adjoint(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32
 
 @wp.func
 def _expm1(x: Any):
-    # exp(x) - 1 without cancellation near 0 (Kahan), used only for x <= 1
+    # exp(x) - 1 without cancellation near 0; called with x <= 1
     u = wp.exp(x)
     one = type(x)(1.0)
     r = x
@@ -277,7 +198,7 @@ def _expm1(x: Any):
 
 @wp.func
 def _log1p(x: Any):
-    # log(1 + x) without cancellation near 0 (Kahan), x >= 0
+    # log(1 + x) without cancellation near 0; called with x >= 0
     one = type(x)(1.0)
     u = one + x
     r = x
@@ -289,7 +210,8 @@ def _log1p(x: Any):
 @wp.func
 def _gm_conj(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), b: int, r: int, k0: int, n: int, s: Any,
              code: int, eps: Any, pp: Any, qq: Any):
-    # conjunction of u_k = -s vals[b, addr[r, k]] over k0 <= k < n (stl.semantics.gm_conj)
+    # generalized-mean conjunction of u_k = -s vals[b, addr[r, k]] over k0 <= k < n: code 4 the power
+    # means of orders (pp, qq), code 5 the exponential generators with beta = log(m) / eps
     zero = type(eps)(0.0)
     one = type(eps)(1.0)
     m = n - k0
@@ -464,6 +386,8 @@ def _gm_conj_adjoint(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int3
 def _gm_forward(vals: wp.array2d(dtype=Any), addr: wp.array2d(dtype=wp.int32), count: wp.array(dtype=wp.int32),
                 off: int, s: Any, code: int, eps: Any, empty: Any, params: wp.array(dtype=Any), roff: int, per_row: int,
                 nested: int, pp: Any, qq: Any):
+    # -s conj(-s z): a minimum is the conjunction, a maximum its dual. nested (the inner step of an until
+    # or release, whose row (t, k) holds psi(t+k), phi(t), ..., phi(t+k)): conj2(entry 0, conj(entries 1..))
     b, r = wp.tid()
     n = count[r]
     e = eps
@@ -548,14 +472,8 @@ def layout(program):
 
 
 def matched_param(program, semantics, eps):
-    """Per-row parameters of the matched protocol (core_study.methods, D006 item 14), float64,
-    one per reduction row in program order: at arity m > 1, gamma = 2 eps / (1 - 1/m) for
-    sparsemax and beta = log(m) / eps for lse and lse_plain, so that every node's local error
-    is eps (for lse_plain, a maximum overestimates by up to eps instead); 0 at
-    m = 1, which the kernels evaluate exactly. m is the row's count of valid entries, the
-    arity core_study.methods reads from the row's mask. gm_exp (E036) gets eps on every row with
-    m > 1 (the kernel sets beta = log(m) / eps for each conjunction it forms, the nested Until's
-    prefix and pair included) and gm_pm01 and gm_pm10 get 1; all 0 at m = 1."""
+    """Per-row parameters in program order, 0 at arity m = 1: by Eq. 15, gamma = 2 eps / (1 - 1/m) for
+    sparsemax and beta = log(m) / eps for lse and lse_plain; eps for gm_exp; 1 for gm_pm01 and gm_pm10."""
     m = np.concatenate([st.count for st in program.steps if st.kind != "atom"]).astype(np.float64)
     safe = np.maximum(m, 2)
     if semantics == "sparsemax":
@@ -564,7 +482,7 @@ def matched_param(program, semantics, eps):
         p = np.log(safe) / eps
     elif semantics == "gm_exp":  # the kernel takes eps and computes beta = log(m) / eps per conjunction
         p = np.full(len(m), float(eps))
-    elif semantics in ORDER:  # gm_pm01, gm_pm10: no parameter; 1 marks a row evaluated by the measure
+    elif semantics in ORDER:  # gm_pm01, gm_pm10: no parameter; 1 marks a row that is not exact
         p = np.ones(len(m))
     else:
         raise ValueError("no matched parameter for " + repr(semantics))
@@ -626,10 +544,8 @@ def _check(program, scores, semantics, param):
 
 
 def _launches(program, plan, scores, vals, semantics, param, oracle):
-    """The forward launches, each with its adjoint launch and the arrays the adjoint touches: one
-    launch for every atom step, then one per reduction step in program order (atom steps read
-    only the scores, so they may all run first). The adjoints read vals.grad and scores.grad when
-    they run."""
+    """The forward launches, each with its adjoint launch and the arrays the adjoint touches: one launch
+    for all atom steps, then one per reduction step in program order."""
     dt, dev = scores.dtype, scores.device
     B, T = scores.shape[0], program.T
     smooth = SMOOTH[semantics]
@@ -666,14 +582,8 @@ def _launches(program, plan, scores, vals, semantics, param, oracle):
 
 
 def evaluate_warp(program, scores, semantics="exact", param=None, tape=None, oracle=False):
-    """All step outputs in one (B, N) buffer, and the step offsets into it.
-
-    With a tape, every step records its hand-written adjoint; scores needs
-    requires_grad=True, and vals.grad accumulates the step output adjoints.
-    oracle=True finds the sparsemax threshold by the O(m^2) brute-force search
-    (test oracle and timing reference); the default is the bisection. param is
-    a positive number or one value per reduction row (module docstring).
-    """
+    """Step outputs in one (B, N) buffer and their offsets; with a tape, every launch registers its adjoint.
+    param: beta (lse, lse_plain), gamma (sparsemax), eps (gm_exp); one number or one per row (0: exact)."""
     _check(program, scores, semantics, param)
     plan = _plan(program, scores.device)
     vals = wp.zeros((scores.shape[0], plan["N"]), dtype=scores.dtype, device=scores.device,
@@ -722,12 +632,8 @@ def robustness_warp(program, scores, semantics="exact", param=None, tape=None, o
 
 
 class Evaluator:
-    """robustness_warp and its gradient for one program, semantics, parameter, batch size B,
-    dtype and device, with the tables, the per-row parameters and every buffer allocated once.
-    scores (B, T, P), rho (B, L) and seed (B, L, ones until set) are its arrays; value() and
-    gradient() copy their arguments into them when given. On a CUDA device with graphs=True the
-    forward and the forward-plus-backward launch sequences are captured as CUDA graphs at
-    construction and replayed per call; otherwise they are launched one by one."""
+    """robustness_warp and its gradient for one program, semantics, parameter, batch size B, dtype and
+    device, with every buffer allocated once; on CUDA, graphs=True replays the launches as CUDA graphs."""
 
     def __init__(self, program, semantics, param, B, dtype, device, P=None, graphs=True, oracle=False):
         device = wp.get_device(device)

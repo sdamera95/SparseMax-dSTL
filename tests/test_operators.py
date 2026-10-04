@@ -1,3 +1,4 @@
+"""Tests of the sparsemax lower extrema and weights (sparsemax_dstl.jax.operators)."""
 import jax
 import jax.numpy as jnp
 import numpy as np

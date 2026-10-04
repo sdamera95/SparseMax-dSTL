@@ -1,21 +1,4 @@
-"""Warp STL backend against the JAX reference evaluator, values and tape gradients.
-
-Tolerances, with eps the unit roundoff of the dtype under test:
-
-- exact values are compared for equality: a maximum or minimum returns one of
-  its inputs and a sign flip is exact, so both backends must return the same
-  floating-point numbers, infinities included.
-- exact gradients: each entry is a sum of seed * sign / n_ties products that
-  the two backends accumulate in different orders; allow 64 eps relative to
-  the largest reference gradient entry (or 1).
-- lse values and gradients: exp and log come from different libraries (Warp's
-  device math versus XLA), and the summation order differs; each reduction
-  adds a few ulp and the weights exp(beta (y - c)) amplify an input error by
-  up to beta |y|. Allow 1024 eps relative to max(1, largest reference entry).
-- two-link chains add sin and cos from different libraries; same 1024 eps.
-
-The measured maxima over a larger set are printed by examples/e005_warp.py.
-"""
+"""Warp STL backend against the JAX evaluator, values and tape gradients."""
 import contextlib
 
 import jax
@@ -51,6 +34,8 @@ def jax_vjp(prog, z, sem, beta, seed):
     return np.asarray(ref), np.asarray(vjp(jnp.asarray(seed))[0])
 
 
+# Tolerances are multiples of eps, the unit roundoff of the dtype: exact values are equal; exact gradients sum
+# products in a different order (64 eps); lse and the two-link chains take exp, log, sin and cos from different libraries (1024 eps)
 def close(a, b, tol):
     return np.max(np.abs(a - b), initial=0.0) <= tol * max(1.0, np.max(np.abs(b), initial=0.0))
 

@@ -1,11 +1,4 @@
-"""E049 round 2: the Warp chain (tasks/planar_warp.py) against the JAX chain (tasks/planar_al.py) on the
-CPU in float64, for the four smoothings, with the four conjuncts as four programs (K = 4) and with the
-whole specification as one program (K = 1): the smoothed values r of forward(), the values of values()
-at seven other command sequences per run, and pullback(w) for a fixed w, to 1e-9 absolute. Commands:
-a seeded uniform draw in [-0.5, 0.5] and a smooth sequence (constant speed, sinusoidal turn rate).
-Also a central finite difference of one conjunct's value through the Warp chain along one random
-direction, a test check only (the chain's derivatives come from Warp's reverse mode).
-"""
+"""Tests of the Warp chain (tasks.planar_warp) against the JAX chain (tasks.planar_al_jax) on the CPU in float64."""
 import jax
 import numpy as np
 import pytest

@@ -1,11 +1,4 @@
-"""Tests of E037's person-scene extension (examples/e037_person.py). CPU only.
-
-- VISIT at 0.45 m is E039's scene visit_h0.45_L10.0; the hand point on the visit's plateau lies `place` metres from the
-  zone centre in the table plane, on the person's side, 0.10 m above the table.
-- choose: the rule of RULE-hand-place.txt on hand-built rows.
-- setup: per-run sphere centres equal the visit at the instance's place and the run's wait; per-run targets are the
-  start's.
-"""
+"""Tests of the person scene of examples.e037_person (visit, hand place, choice rule and setup), on the CPU."""
 import numpy as np
 
 from examples import e034_until_demo as U
@@ -21,8 +14,8 @@ def test_visit_is_e039_scene():
 
 
 def test_hand_place_on_plateau():
-    for place in (0.40, 0.45, 0.60):  # three places
-        for w in (2.0, 7.22):  # two waits
+    for place in (0.40, 0.45, 0.60):
+        for w in (2.0, 7.22):
             P = Q.person(w, place)
             t = np.arange(len(P["human_centres"])) * U.HS
             v0, v1 = P["visit"]
@@ -67,7 +60,7 @@ def test_setup(tmp_path):
     Q.setup_main(str(tmp_path), str(tmp_path / "choice.csv"), out, (1, 2), ("sparsemax", "lse"))
     z = np.load(out)
     assert len(z["run_method"]) == 4 * 2 * 2 * 2
-    for r in (0, 5, 17, 31):  # sampled runs
+    for r in (0, 5, 17, 31):
         place = 0.5 if z["run_instance"][r] == 1 else 0.45
         assert np.array_equal(z["hc"][r], Q.person(float(z["run_wait"][r]), place)["human_centres"].astype(np.float32))
         assert np.array_equal(z["pick"][r], pick[z["plan"][r]]) and Iv[z["plan"][r]] == z["run_instance"][r]

@@ -1,18 +1,5 @@
-"""Planar two-link arm predicates with closed-form derivatives, for tests.
-
-The state is the joint-angle pair q = (q1, q2). The end effector is at
-
-    p(q) = (l1 cos q1 + l2 cos(q1 + q2), l1 sin q1 + l2 sin(q1 + q2)).
-
-Scores, positive when satisfied:
-
-    reach      r_c^2 - |p - c|^2      (end effector inside the target disk)
-    clearance  |p - o|^2 - r_o^2      (end effector outside the obstacle disk)
-    elbow      q_max - q2             (linear joint bound, depends on q2 only)
-
-The NumPy functions give their gradients and Hessians in closed form, as the
-analytic reference for automatic differentiation.
-"""
+"""Planar two-link arm predicates (reach, clearance, elbow), positive when satisfied, with closed-form gradients and Hessians
+as the analytic reference for automatic differentiation."""
 import jax.numpy as jnp
 import numpy as np
 
@@ -82,12 +69,8 @@ def analytic(Q):
 
 
 def analytic_chain(program, X, semantics="exact", beta=None):
-    """Gradient (2T,) and Hessian (2T, 2T) of the root at t = 0 with respect to X (T, 2).
-
-    Analytic reference: d2 rho/dX2 = Jz^T Hz Jz + sum_i (d rho/dz_i) d2 z_i/dX2,
-    with Jz block diagonal in time, from the closed-form predicate derivatives
-    and oracle.analytic_derivatives on the scores.
-    """
+    """Gradient (2T,) and Hessian (2T, 2T) of the root at t = 0 with respect to X (T, 2):
+    Jz^T Hz Jz + sum_i (d rho/dz_i) d2 z_i/dX2, with Jz block diagonal in time."""
     X = np.asarray(X, dtype=np.float64)
     T = X.shape[0]
     g, dg, d2g = analytic(X)

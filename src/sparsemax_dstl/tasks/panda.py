@@ -1,71 +1,5 @@
-"""Panda task environment for both robot studies (E007, protocol D006).
-
-Status (D006 amendment of 2026-09-29): the study scenario is the human-robot shared workspace
-of tasks.workspace (E019), which uses this module's plant, kinematics and dynamics. The random
-virtual obstacle spheres, the instances and the specifications below are retired for study use
-and remain as test fixtures.
-
-State and control. The state is x = (q, qdot) in R^14 and the control u in R^7 is the
-gravity-compensated joint torque command, held constant over each sampling interval h.
-Physics runs at DT = 0.002 s with implicitfast, the Newton solver, 100 iterations and
-tolerance 1e-8 (Menagerie's options, checked in the tests); h is a whole number of physics
-steps, so changing h changes sampling and nothing about the physics.
-
-Torque. The model carries MuJoCo's gravity compensation routed through the actuators: body
-gravcomp = 1 on every body, actuatorgravcomp on every joint, and a joint-level actuator force
-range equal to the actuator's force range. At every physics step MuJoCo (C, MJX and
-MuJoCo-Warp alike) applies
-
-    tau = clip(clip(u, -tau_max, tau_max) + tau_g(q), -tau_max, tau_max),
-    tau_g(q) = -sum_b J_b(q)^T m_b g,
-
-with tau_max = (87, 87, 87, 87, 12, 12, 12) N m, so the command and the total joint torque both
-stay within Menagerie's force ranges. Joint limits stay in the dynamics; robot geoms carry no
-contact rows.
-
-Signals. Predicate scores (atoms) are functions of one state, positive when satisfied, stacked
-on the last axis: scores(mx, inst, X) maps (..., T, 14) to (..., T, P), the layout of the STL
-layer. The order is score_layout(): goals, speed, then clearances link-major. Each atom is a
-distance-like margin divided by its own threshold, smoothed at zero (E014, user ruling
-2026-09-28, option C):
-
-    goal       (R_GOAL - n+(p - c)) / R_GOAL
-    speed      (V_MAX - n+(pdot)) / V_MAX
-    clearance  (n-(c_l - o) - R) / R,          R = r_l + R_OBS
-
-    n+(x) = sqrt(|x|^2 + eps^2) >= |x|,   n-(x) = sqrt(|x|^2 + eps^2) - eps <= |x|,
-
-with eps = EPS_LENGTH for positions and EPS_SPEED for the velocity. So each atom is at most
-its exact normalized margin, a positive atom implies the exact distance or speed condition,
-one unit is the atom's own threshold, and the loss is at most eps / threshold. Every atom is
-infinitely differentiable; its gradient in the physical vector has norm at most
-1 / threshold and its Hessian norm at most 1 / (eps threshold), reached at x = 0. n- is
-computed as |x|^2 / (n+(x) + eps), the same function without cancellation near zero.
-
-p is the attachment_site position and c_l the centre of the bounding sphere of one collision
-geom of a link (link_spheres), both from MJX kinematics; pdot is the forward-mode derivative
-of p along qdot. None of these paths touches the constraint solver. lipschitz() gives each
-atom's declared bound in the infinity norm of the state, the form E010's guard consumes.
-
-Referee. margins(mx, inst, X) gives the unsmoothed normalized margins in the same layout,
-eps = 0 in the norms (root decision on E014, 2026-09-28):
-
-    goal (R_GOAL - |p - c|) / R_GOAL,  speed (V_MAX - |pdot|) / V_MAX,  clearance (|c_l - o| - R) / R.
-
-They are the referee's scores: every exact robustness reported as an outcome reads them,
-while every optimized objective reads scores(). Each margin is at least its atom, and every
-Panda formula uses its atoms without negation, so the referee's robustness is at least the
-exact robustness on the atoms. margins() stops gradients at its input, so no derivative is
-ever taken through it; the norm is not differentiable at zero length.
-
-Dynamics. interval_map is f_h, rollout composes it, interval_jacobians gives D_x f_h and
-D_u f_h by forward mode. All three take the physics step as an argument; the default is
-E004's mjx_implicit.step, whose values equal mjx.step and whose derivatives differentiate
-the converged constraint solve.
-
-Specifications. core_spec (phi_H) and extension_specs build E005 formulas over the score
-layout, with windows rounded by window().
-"""
+"""The Franka Panda of the manipulator example in MuJoCo: the model with gravity compensation through the
+actuators, its collision geometry, the time grid and control initializations."""
 
 import math
 from fractions import Fraction
@@ -76,18 +10,17 @@ import numpy as np
 
 from .. import plants
 
-DT = 0.002
+DT = 0.002  # physics step, s
 REPLAY_DT = 0.0005
-NQ = 7
+NQ = 7  # the state is (q, qdot) in R^14, the control a torque command in R^7
 SITE = "attachment_site"
 BASE = "link0"
 LINKS = ("link1", "link2", "link3", "link4", "link5", "link6", "link7")
 
-R_GOAL = 0.05
-R_OBS = 0.05
-V_MAX = 0.1
-# eps is 1% of the smallest threshold of its physical quantity (E014): R_GOAL for lengths,
-# V_MAX for the speed.
+R_GOAL = 0.05  # goal radius, m
+R_OBS = 0.05  # obstacle radius, m
+V_MAX = 0.1  # bound on the site's speed, m/s
+# smoothing lengths of the norms: 1% of R_GOAL for lengths (m) and of V_MAX for the speed (m/s)
 EPS_LENGTH = 5e-4
 EPS_SPEED = 1e-3
 
@@ -114,12 +47,12 @@ H_MAX = 16
 
 @cache
 def model(timestep=DT):
-    """The task plant, compiled from model_spec(timestep). Cached; do not mutate the result."""
+    """The compiled model of model_spec(timestep). Cached; do not mutate the result."""
     return model_spec(timestep).compile()
 
 
 def model_spec(timestep=DT):
-    """plants.panda(contacts=False) plus gravity compensation through the actuators and
+    """The Panda without contacts (plants.panda_spec) with gravity compensation through the actuators and
     joint-level actuator force ranges equal to the actuator force ranges."""
     spec = plants.panda_spec(contacts=False)
     spec.option.timestep = timestep
@@ -135,6 +68,7 @@ def model_spec(timestep=DT):
 
 
 def torque_limit():
+    """Upper end of every actuator's control range, (7,)."""
     return model().actuator_ctrlrange[:, 1].copy()
 
 
@@ -155,7 +89,7 @@ def _chain(m, body):
 # collision geometry
 
 def collision_geoms(m, body):
-    """Collision geoms of a body; Menagerie's collision class is geom group 3."""
+    """Collision geoms of a body: those in geom group 3, the collision class of the Menagerie model."""
     return np.nonzero((m.geom_bodyid == body) & (m.geom_group == 3))[0]
 
 
@@ -170,12 +104,8 @@ def geom_vertices(m, g):
 
 
 def reach_bounds(m, body, offset):
-    """Upper bounds D_j >= |x - o_j| over all configurations, for the point x at offset (body
-    frame) on body, and o_j the anchor of the j-th joint of the body's chain, in chain order.
-
-    D_j is the joint anchor's offset in its body plus the lengths of the body offsets after
-    that body up to body, plus |offset|: the triangle inequality along the chain, since
-    rotations preserve lengths. Every joint on the chain must be a hinge."""
+    """Upper bounds D_j >= |x - o_j| over all configurations, for the point x at offset (body frame) on
+    body and the anchor o_j of every hinge joint on the body's chain, in chain order."""
     path = []
     b = body
     while b > 0:
@@ -185,7 +115,7 @@ def reach_bounds(m, body, offset):
     step = np.array([np.linalg.norm(m.body_pos[b]) for b in path])
     tail = np.concatenate([np.cumsum(step[::-1])[::-1][1:], [0.0]]) + np.linalg.norm(offset)
     D = []
-    for i, b in enumerate(path):  # over the bodies of the chain (model structure)
+    for i, b in enumerate(path):
         for j in range(m.body_jntadr[b], m.body_jntadr[b] + m.body_jntnum[b]):
             assert m.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE
             D.append(np.linalg.norm(m.jnt_pos[j]) + tail[i])
@@ -217,13 +147,13 @@ def intervals(H, h):
 
 
 def window(a, b, h):
-    """Sample indices [ceil(a/h), floor(b/h)] of a window [a, b] in seconds (D006 item 7)."""
+    """Sample indices [ceil(a/h), floor(b/h)] of a window [a, b] in seconds."""
     a, b, h = _exact(a), _exact(b), _exact(h)
     return math.ceil(a / h), math.floor(b / h)
 
 
 # ------------------------------------------------------------------
-# windows of the specifications
+# windows of the specifications, as fractions of the horizon
 
 REACH = ((Fraction(1, 4), Fraction(1, 2)), (Fraction(3, 5), Fraction(4, 5)))
 DWELL = Fraction(1, 10)
@@ -246,14 +176,8 @@ def initial_state(inst):
 
 
 def initial_controls(seed, n, H, h, n_init=N_INIT):
-    """Paired control initializations (n, n_init, H / h, 7).
-
-    Torques are piecewise constant on cells of INIT_CELL seconds, drawn i.i.d. from
-    N(0, (INIT_SIGMA tau_max)^2) per joint and clipped to the command limits, over H_MAX
-    seconds; they are then held at the sampling interval h and cut to the horizon H. The
-    initial command, as a function of time, is therefore the same for every h that divides
-    INIT_CELL, and the one for a shorter horizon is a prefix of the one for a longer one.
-    """
+    """Control initializations (n, n_init, H / h, 7): torques drawn from N(0, (INIT_SIGMA tau_max)^2) per
+    joint, constant on cells of INIT_CELL seconds, clipped to the command limits, held at h, cut to H."""
     tau = torque_limit()
     rng = np.random.default_rng([seed, 1])
     W = rng.standard_normal((n, n_init, intervals(H_MAX, INIT_CELL), NQ)) * INIT_SIGMA * tau

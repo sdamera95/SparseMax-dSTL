@@ -21,11 +21,9 @@ from .panda import (BASE, CLEAR_MARGIN, DWELL, EPS_LENGTH, EPS_SPEED, GOAL_MIN_Z
 # link spheres
 
 def _enclosing_centre(V, iterations=10000):
-    """Badoiu-Clarkson iterations toward the minimum enclosing ball of V (N, 3), in float64.
-    Only the centre is used; the radius is measured afterwards, so containment does not
-    depend on how close this gets to the minimum."""
-    # ensure_compile_time_eval: computed now even when the first caller is inside a jit trace,
-    # so np.asarray receives a value, not a tracer
+    """Centre for a bounding sphere of V (N, 3), in float64: from the centre of the bounding box, step k moves
+    1 / (k + 2) of the way to the farthest point."""
+    # evaluated at trace time, so that np.asarray receives a value and not a tracer under jit
     with jax.enable_x64(True), jax.ensure_compile_time_eval():
         V = jnp.asarray(V)
 
@@ -39,16 +37,8 @@ def _enclosing_centre(V, iterations=10000):
 
 @cache
 def link_spheres():
-    """One bounding sphere per collision geom of BASE and LINKS, in body then geom order, in
-    each body's frame; the first row is BASE's single geom.
-
-    Each centre is rounded to 0.1 mm and each radius is the largest vertex distance from that
-    centre plus at least 1 micrometre, rounded up to 0.1 mm. A ball is convex, so containing
-    every vertex of a mesh means containing its convex hull, which contains the mesh and is
-    the shape MuJoCo collides for a mesh geom. A link's spheres together therefore contain its
-    collision geometry. Only the LINKS rows enter clearance predicates; BASE is fixed and is
-    used in instance generation.
-    """
+    """One bounding sphere per collision geom of BASE and LINKS, in body then geom order, in each body's frame (the
+    first row is BASE's single geom); radius: the largest vertex distance plus 1 micrometre, rounded up to 0.1 mm."""
     m = model()
     geoms = np.concatenate([collision_geoms(m, _body(m, n)) for n in (BASE,) + LINKS])
     assert len(collision_geoms(m, _body(m, BASE))) == 1
@@ -78,12 +68,8 @@ def frames(mx, q):
 
 
 def score_layout(n_goals=2, n_obstacles=2):
-    """Names and declared state dependencies of the scores, in the order scores() returns.
-
-    A dependency set lists the state coordinates on the kinematic chain of the score's body:
-    joint positions for positions, and also joint velocities for the speed. Coordinates
-    outside it have exactly zero derivative.
-    """
+    """Names and state dependencies of the scores, in the order scores() returns: the state coordinates on the
+    kinematic chain of each score's body, joint positions and, for the speed, also joint velocities."""
     m = model()
     s = link_spheres()
     site = _chain(m, _body(m, "attachment"))
@@ -156,8 +142,8 @@ def _margins(mx, goals, obstacles, x):
 
 
 def margins(mx, inst, X):
-    """The referee's unsmoothed normalized margins (..., T, P) of states X (..., T, 14), in the
-    layout of scores(); gradients stop at X."""
+    """The margins of scores() with the Euclidean norm in place of the smooth norms, (..., T, P) in the same layout;
+    gradients stop at X."""
     X = jax.lax.stop_gradient(X)
     goals = jnp.asarray(inst["goals"], X.dtype)
     obstacles = jnp.asarray(inst["obstacles"], X.dtype)
@@ -165,8 +151,7 @@ def margins(mx, inst, X):
 
 
 def predicates(mx, inst):
-    """The scores as E005 predicates, one per score_layout() entry: Predicate(fn, deps, name)
-    with fn a function of one state. scores() computes them all from one kinematics pass."""
+    """The scores as Predicate(fn, deps, name), one per score_layout() entry, with fn a function of one state."""
     goals, obstacles = jnp.asarray(inst["goals"]), jnp.asarray(inst["obstacles"])
     names, deps = score_layout(len(goals), len(obstacles))
 
@@ -177,23 +162,8 @@ def predicates(mx, inst):
 
 
 def lipschitz(n_goals=2, n_obstacles=2, qdot_max=None):
-    """Declared bounds l_mu with |g_mu(x) - g_mu(x')| <= l_mu |x - x'|_inf, one per score in
-    score_layout() order, the form E010's guard (sparsead.GuardedJacobian) consumes.
-
-    For a point x on a chain of hinges with axes a_j and anchors o_j, the Jacobian column is
-    a_j x (x - o_j), so |J dq| <= sum_j D_j |dq|_inf with D_j from reach_bounds. n+ and n- are
-    1-Lipschitz in the Euclidean norm, so
-
-        goal       l = sum_j D_j(site) / R_GOAL,
-        clearance  l = sum_j D_j(c_l) / (r_l + R_OBS),
-
-    for all states. The speed reads pdot = J(q) qdot, and d J_j / d q_k has norm at most
-    D_max(j,k) (the more distal of the two joints), so on the box |qdot| <= qdot_max, which is
-    convex and so holds every segment between its points,
-
-        speed      l = (sum_j D_j + sum_{j,k} qdot_max_j D_max(j,k)) / V_MAX.
-
-    Without qdot_max the speed has no global bound and gets inf."""
+    """Lipschitz bounds of the scores in the infinity norm of the state, in score_layout() order, from reach_bounds.
+    The speed bound holds on the box |qdot| <= qdot_max and is inf without qdot_max."""
     m = model()
     s = link_spheres()
     site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, SITE)
@@ -213,13 +183,8 @@ def lipschitz(n_goals=2, n_obstacles=2, qdot_max=None):
 # specifications
 
 def core_spec(H, h, n_obstacles=2):
-    """phi_H of smd:eq:robot_spec (D006 item 12) over the score layout, sampled at h:
-
-        G_[0,H] a  and  F_[H/4,H/2] goal0  and  F_[3H/5,4H/5] G_[0,H/10] goal1,
-
-    with a the conjunction of every clearance score, in layout order, and windows rounded
-    by window(). Compile it with T = intervals(H, h) + 1 samples; its horizon is H/h, so
-    the robustness trace has one entry, the value at t = 0."""
+    """G_[0,H] a and F_[H/4,H/2] goal0 and F_[3H/5,4H/5] G_[0,H/10] goal1 over the score layout, sampled at h, with a
+    the conjunction of every clearance score."""
     H = _exact(H)
     names, _ = score_layout(2, n_obstacles)
     a = And(*[Atom(i) for i, n in enumerate(names) if n.startswith("clear_")])
@@ -230,23 +195,17 @@ def core_spec(H, h, n_obstacles=2):
 
 
 def extension_specs(H, h, n_obstacles=2):
-    """The extension's specifications, one constraint row each (D006 item 18), sampled at h:
-    for each goal g the reach-and-dwell template sad:eq:task,
-
-        F_[a_g H, b_g H] G_[0, DWELL H] (goal_g and speed),
-
-    with the core study's windows REACH, then G_[0,H] clear for each declared sphere and
-    obstacle, in layout order. Returns (names, formulas); compile each with
-    T = intervals(H, h) + 1."""
+    """(names, formulas), sampled at h: F_[a_g H, b_g H] G_[0, DWELL H] (goal_g and speed) for each goal g with the
+    windows REACH, then G_[0,H] of each clearance score."""
     H = _exact(H)
     names, _ = score_layout(2, n_obstacles)
     speed = Atom(names.index("speed"))
     rows, out = [], []
-    for g, (a, b) in enumerate(REACH):  # over goals (formula structure)
+    for g, (a, b) in enumerate(REACH):
         rows.append("reach_dwell_goal" + str(g))
         out.append(Eventually(window(a * H, b * H, h),
                               Always(window(0, DWELL * H, h), And(Atom(names.index("goal" + str(g))), speed))))
-    for i, n in enumerate(names):  # over predicates (formula structure)
+    for i, n in enumerate(names):
         if n.startswith("clear_"):
             rows.append("always_" + n)
             out.append(Always(window(0, H, h), Atom(i)))
@@ -257,16 +216,8 @@ def extension_specs(H, h, n_obstacles=2):
 # dynamics
 
 def interval_map(mx, n_sub, step=mjx_implicit.step):
-    """f_h(x, u): the state after n_sub physics steps from x under the constant command u.
-
-    step(m, d) -> d is the physics step. The default is E004's mjx_implicit.step: its values
-    are stock MJX's, and its derivatives differentiate the converged constraint solve
-    (root's direction, 2026-09-28). mjx.step, the value reference, and E003's mjx_scan.step
-    differentiate the executed solver iterations instead, which misses a step's dependence
-    on its inputs when the solve returns its warm start without iterating. Each call starts
-    from fresh data, so the solver warmstart is zero at the start of every interval and
-    carried across its substeps.
-    """
+    """f_h(x, u): the state after n_sub physics steps of step(m, d) -> d from x under the constant command u. Each
+    call starts from new data, so the constraint solver's warm start is zero at the start of the interval."""
     def f(x, u):
         d = mjx.make_data(mx).replace(qpos=x[:NQ], qvel=x[NQ:], ctrl=u)
         d, _ = jax.lax.scan(lambda d, _: (step(mx, d), None), d, length=n_sub)
@@ -276,8 +227,7 @@ def interval_map(mx, n_sub, step=mjx_implicit.step):
 
 
 def rollout(mx, n_sub, x0, U, step=mjx_implicit.step):
-    """Single shooting: states (N + 1, 14) at the sample times from x0 (14,) and U (N, 7).
-    It is the composition of interval_map, so it equals multiple shooting with zero defects."""
+    """Single shooting: states (N + 1, 14) at the sample times from x0 (14,) and U (N, 7)."""
     f = interval_map(mx, n_sub, step)
 
     def body(x, u):
@@ -289,13 +239,12 @@ def rollout(mx, n_sub, x0, U, step=mjx_implicit.step):
 
 
 def interval_jacobians(mx, n_sub, x, u, step=mjx_implicit.step):
-    """D_x f_h (14, 14) and D_u f_h (14, 7) by forward mode, through step (see interval_map)."""
+    """D_x f_h (14, 14) and D_u f_h (14, 7) of interval_map by forward mode."""
     return jax.jacfwd(interval_map(mx, n_sub, step), argnums=(0, 1))(x, u)
 
 
 def solver_gradient(mx, d):
-    """Scaled norm of the constraint solver's cost gradient M qacc - qfrc_smooth - qfrc_constraint
-    for data returned by a step, the quantity MJX compares with opt.tolerance."""
+    """Norm of M qacc - qfrc_smooth - qfrc_constraint for data returned by a step, divided by meaninertia max(1, nv)."""
     g = mjx.mul_m(mx, d, d.qacc) - d.qfrc_smooth - d.qfrc_constraint
     return jnp.linalg.norm(g) / (mx.stat.meaninertia * max(1, mx.nv))
 
@@ -304,19 +253,8 @@ def solver_gradient(mx, d):
 # instances
 
 def instances(seed, n):
-    """The first n valid task instances of a seeded candidate stream (copies of a cached draw).
-
-    Each candidate draws three configurations uniformly from _config_box(): the start q0 and
-    two goal configurations. The goals are the attachment-site positions at the goal
-    configurations, so each is reachable by construction. Obstacle 0 lies on the segment from
-    the start position to goal 0 and obstacle 1 on the segment from goal 0 to goal 1, at a
-    fraction drawn from OBS_FRACTION, plus an offset drawn from [-OBS_OFFSET, OBS_OFFSET]^3.
-    A candidate is valid when the goals are at least GOAL_MIN_Z high, the start and both goals
-    are pairwise MIN_SEPARATION apart, every sphere of link_spheres() clears every obstacle by
-    CLEAR_MARGIN at all three configurations, and every goal ball clears every obstacle by
-    CLEAR_MARGIN. Kinematics run in float64 whatever the global precision, so the result does
-    not depend on it. instances(seed, k) is a prefix of instances(seed, n) for k <= n.
-    """
+    """The first n valid instances of a seeded candidate stream: a start configuration, two goals at the site positions
+    of drawn configurations, and two obstacles near the segments between them; a prefix of any longer draw."""
     out = _instances(seed)
     if out["accepted"] < n:
         raise ValueError("only " + str(out["accepted"]) + " of " + str(N_CANDIDATES) + " candidates are valid")

@@ -1,3 +1,4 @@
+"""Tests of the Panda and sliding-block plants (sparsemax_dstl.plants) and the pinned Menagerie commit."""
 import subprocess
 
 import numpy as np

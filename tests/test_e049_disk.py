@@ -1,15 +1,4 @@
-"""E049 round 2: the disk-region example and the unicycle chain against independent references.
-
-- every smoothing's value of the STL specification on S1 and S2 against the NumPy evaluation from the
-  definitions (planar_oracle);
-- the AD weight on S1's samples inside Red against central finite differences of the NumPy evaluation
-  (a test check only);
-- S1 and S2: inputs in the box, forward speed never negative, the turn rate changing by at most
-  0.2 rad/s per step; S1's samples at full depth tied, its standing samples at the stand-off;
-- sparsemax between the exact robustness minus its budget and the exact robustness;
-- the JAX chain's per-conjunct values equal planar_disk.values, its gradient equal to a finite
-  difference along one direction (a test check only).
-"""
+"""Tests of the disk-region unicycle example (tasks.planar_disk) against the NumPy oracle and finite differences."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -60,7 +49,7 @@ def test_values_against_oracle(case, method):
         S = case[name][1]
         sv, cv = Dj.values(jnp.asarray(S), tm, P0j.matched(method, EPS))
         assert abs(float(sv) - O.ev(spec, S, np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
-        for c, v in zip(conj, np.asarray(cv)):  # over the conjuncts
+        for c, v in zip(conj, np.asarray(cv)):
             assert abs(float(v) - O.ev(c, S, np.array([0]), sem=method, eps=EPS)[0]) < 1e-10
 
 

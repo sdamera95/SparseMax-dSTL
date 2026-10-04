@@ -1,29 +1,5 @@
-"""MJX step and forward whose constraint solve is differentiated implicitly (E004).
-
-The forward pass runs MJX's stock constraint solver unchanged, so values equal mjx.step and
-mjx.forward. Derivatives of the solver outputs (qacc, qfrc_constraint, efc_force) come from
-the implicit function theorem applied to the solver's own optimality condition. MJX's solver
-minimizes a convex, piecewise-quadratic cost in the acceleration a, whose gradient is
-
-    G(a) = M a - qfrc_smooth - J^T f(J a - aref)        (mjx/_src/solver.py:392)
-
-with f the constraint force of solver._update_constraint. At the returned solution G = 0.
-Within the constraint state found there (active rows, friction-loss zones, elliptic cone
-zones), G is smooth, and its Jacobian in a is H = M + J^T C J, where C is the negative
-Jacobian of f in Jaref = J a - aref. Differentiating G(a(p), p) = 0 gives
-
-    da = -H^{-1} (dG/dp) dp,
-
-one Cholesky solve per step, with no per-iteration storage. The derivation and its limits are
-in docs/implogs/E004-mjx-implicit-solver-differentiation.md.
-
-The rule is a jax.custom_jvp whose tangent is linear in the input tangents, so JAX can
-transpose it for reverse mode; jvp, jacfwd, grad, vjp, jacrev, jit and vmap are exercised
-in tests/test_mjx_implicit.py. The derivative holds within the constraint state at the
-returned solution and assumes that solution is a root of G. The code uses
-private mujoco-mjx 3.12.0 modules and refuses to import against any other version. Use it
-explicitly, in place of mjx.step and mjx.forward; nothing global is patched.
-"""
+"""MJX step and forward whose constraint solve is differentiated by the implicit function theorem at the
+solver's optimality condition G(qacc) = 0 (Appendix III of the paper). For mujoco-mjx 3.12.0 and impl="jax"."""
 
 from importlib.metadata import version
 
@@ -69,24 +45,14 @@ def _check(m, d):
 
 
 def stationarity(m, d, qacc):
-    """Solver cost gradient G, efc_force and qfrc_constraint at acceleration qacc.
-
-    d is the data the solver receives (after fwd_acceleration). This calls MJX's own
-    Context.create, so G is exactly the gradient the solver drives to zero
-    (solver.py:78-123, 256-371, 392). The constraint state is recomputed from Jaref by
-    comparisons, which carry no derivative, so JAX differentiates G inside the constraint
-    state at qacc.
-    """
+    """G = M qacc - qfrc_smooth - qfrc_constraint, the gradient of the solver's cost at qacc, with efc_force
+    and qfrc_constraint there; d is the data the solver receives."""
     ctx = solver.Context.create(m, d.replace(qacc=qacc), grad=False)
     return ctx.Ma - d.qfrc_smooth - ctx.qfrc_constraint, ctx.efc_force, ctx.qfrc_constraint
 
 
 def _cone_hessian(ctx):
-    """Hessian of the elliptic middle-zone cost in Jaref, one 6x6 block per contact.
-
-    Same expression as MJX's Newton branch (solver.py:338-353), computed for every solver
-    and masked with where rather than a product so that no inf reaches a zero.
-    """
+    """Hessian of the elliptic middle-zone cost in Jaref, one 6x6 block per contact, zero outside that zone."""
     mu, u, fri, dm = ctx.fri[:, 0], ctx.u, ctx.fri, ctx.dm
     n = u[:, 0]
     t = jax.vmap(mjx_math.norm)(u[:, 1:])
@@ -102,13 +68,8 @@ def _cone_hessian(ctx):
 
 
 def hessian(m, d, qacc):
-    """H = M + J^T C J, the Jacobian of G in qacc within the constraint state at qacc.
-
-    C is diag(efc_D) on quadratic rows (MJX's ctx.active: active inequality rows, all
-    equality rows, friction-loss rows in their quadratic zone, elliptic rows in the bottom
-    zone) plus the elliptic middle-zone blocks. For NEWTON this is the matrix MJX factors in
-    solver.py:397-408.
-    """
+    """H = M + J^T C J, the Jacobian of G in qacc with the constraint state at qacc held fixed: C is
+    diag(efc_D) on the rows MJX marks active plus the elliptic middle-zone blocks."""
     ctx = solver.Context.create(m, d.replace(qacc=qacc), grad=False)
     efc_j = d._impl.efc_J
     h = support.full_m(m, d) + (efc_j.T * (d._impl.efc_D * ctx.active)) @ efc_j
@@ -125,7 +86,7 @@ def hessian(m, d, qacc):
 
 @jax.custom_jvp
 def solve(m, d):
-    """Stock solver.solve outputs (qacc, qfrc_constraint, efc_force), implicit derivatives."""
+    """(qacc, qfrc_constraint, efc_force) of MJX's solver.solve; the derivative rule is _solve_jvp."""
     d = solver.solve(m, d)
     return d.qacc, d.qfrc_constraint, d._impl.efc_force
 
@@ -136,17 +97,17 @@ def _solve_jvp(primals, tangents):
     m_dot, d_dot = tangents
     out = solve(m, d)
     qacc = out[0]
-    # partial derivative of G and of the outputs in the solver inputs, at fixed qacc
+    # tangents of G and of the two forces at fixed qacc; then qacc_dot = -H^{-1} g_dot
     _, (g_dot, f_dot, q_dot) = jax.jvp(lambda m, d: stationarity(m, d, qacc), (m, d), (m_dot, d_dot))
     factor = jax.scipy.linalg.cho_factor(hessian(m, d, qacc))
     qacc_dot = -jax.scipy.linalg.cho_solve(factor, g_dot)
-    # the outputs' dependence on qacc, pushed by the implicit qacc tangent
+    # tangents of the two forces through qacc
     _, (_, fa_dot, qa_dot) = jax.jvp(lambda a: stationarity(m, d, a), (qacc,), (qacc_dot,))
     return out, (qacc_dot, q_dot + qa_dot, f_dot + fa_dot)
 
 
 def forward(m, d):
-    """mjx.forward (mjx/_src/forward.py:431-455) with the implicitly differentiated solve."""
+    """The stages of mjx.forward with this module's solve in place of solver.solve."""
     _check(m, d)
     d = mjx_forward.fwd_position(m, d)
     d = sensor.sensor_pos(m, d)
@@ -162,7 +123,7 @@ def forward(m, d):
 
 
 def _rungekutta4(m, d):
-    """forward.rungekutta4 (forward.py:366-408) calling this module's forward."""
+    """MJX's rungekutta4 with this module's forward."""
     d0 = d
     a, b = mjx_forward._RK4_A, mjx_forward._RK4_B
     c = jnp.tril(a).sum(axis=0)
@@ -192,7 +153,7 @@ def _rungekutta4(m, d):
 
 
 def step(m, d):
-    """mjx.step (forward.py:458-476) with the implicitly differentiated solve."""
+    """mjx.step with this module's forward, for the Euler, implicitfast and RK4 integrators."""
     d = forward(m, d)
     if m.opt.integrator == IntegratorType.EULER:
         return mjx_forward.euler(m, d)

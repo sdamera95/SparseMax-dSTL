@@ -1,4 +1,4 @@
-"""E020: reachable-row compilation. Pruned programs against unpruned ones."""
+"""Tests of reachable-row compilation: pruned programs against unpruned ones."""
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -25,7 +25,7 @@ def random_reads(rng, full):
     """1 to 3 random reads of subformulas the program holds, some of them witness rows."""
     nodes = list(full.nodes)
     reads = []
-    for _ in range(int(rng.integers(1, 4))):  # reads
+    for _ in range(int(rng.integers(1, 4))):
         g = nodes[int(rng.integers(len(nodes)))]
         n = full.steps[full.nodes[g]].length
         t = np.sort(rng.choice(n, size=int(rng.integers(1, n + 1)), replace=False))
@@ -38,7 +38,7 @@ def random_reads(rng, full):
 
 
 def unpruned_reads(full, reads):
-    locs = [locate(full, *r) for r in reads]  # reads
+    locs = [locate(full, *r) for r in reads]
     return lambda vals: jnp.concatenate([vals[s][..., rows] for s, rows in locs], -1)
 
 
@@ -49,7 +49,7 @@ def test_root_reads_equal_unpruned_rows_and_shrink():
     full = compile_formula(f, T)
     pr = compile_formula(f, T, reads=[(f, [0])])
     assert entries(pr) < entries(full)
-    for sem, param in SEMANTICS:  # semantics
+    for sem, param in SEMANTICS:
         a = np.asarray(robustness(full, z, sem, param))[0]
         b = np.asarray(robustness(pr, z, sem, param))
         assert b.shape == (1,)
@@ -63,10 +63,9 @@ def derivatives(F):
 
 @pytest.mark.parametrize("boundary", ["strict", "clip"])
 def test_random_reads_values_and_derivatives(boundary):
-    # A few formulas and four semantics here; the gate script runs every semantics on more.
     rng = np.random.default_rng(11 if boundary == "strict" else 12)
     sems = [SEMANTICS[i] for i in (0, 1, 4, 6)] if boundary == "strict" else SEMANTICS[:1]
-    for _ in range(4):  # random formulas
+    for _ in range(4):
         f = oracle.random_formula(rng, 3, int(rng.integers(1, 4)))
         T = stl.horizon(f) + int(rng.integers(1, 4))
         full = compile_formula(f, T, boundary)
@@ -74,7 +73,7 @@ def test_random_reads_values_and_derivatives(boundary):
         pr = compile_formula(f, T, boundary, reads)
         gather = unpruned_reads(full, reads)
         z = jnp.asarray(rng.normal(size=(T, 3)))
-        for sem, param in sems:  # semantics
+        for sem, param in sems:
             F = lambda z: gather(stl_jax.evaluate(full, z, sem, param))
             G = lambda z: read(pr, stl_jax.evaluate(pr, z, sem, param))
             if boundary == "clip":

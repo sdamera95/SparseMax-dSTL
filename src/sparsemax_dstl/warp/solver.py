@@ -1,45 +1,5 @@
-"""E029's constrained solve on the all-Warp gradient, with no JAX call in the loop (E033).
-
-Problem and solver: those of sparsemax_dstl.constrained (E029), restated here in NumPy so that
-the loop runs where JAX does not. Over normalized commands V (n, N, m) in the box |V| <= 1,
-
-    minimize  lam E(V)   subject to   rho(V) >= delta,     E(V) = sum(V^2) / N,
-
-by the one-sided augmented Lagrangian
-
-    L(V; nu, mu) = lam E(V) + (mu / 2) max(0, delta - rho(V) + nu / mu)^2,
-    grad L = lam grad E - w grad rho,   w = max(0, nu + mu (delta - rho)),
-
-normalized gradient descent with `trials` trial steps a_j = 2 alpha 0.5^j evaluated in parallel
-(each projected onto the box), the Armijo test on L(V_j) - L(V) assembled from differences, a
-zero-step reference lane among the trials, the step floor ALPHA_MIN, and every EVERY iterates
-nu <- max(0, nu + mu (delta - rho)) and mu <- min(2 mu, MU_MAX) when the violation exceeds
-VIOL_TOL and half its value at the block's start. Every constant and formula is constrained.py's
-(tests/test_constrained_warp.py checks the functions against it); the arithmetic is float32.
-
-The plant-and-specification function (Chain), all Warp on one device:
-- the gradient pass at n worlds: the rollout of warp_plant.Plant (E027: the MuJoCo-Warp adjoint
-  fork, CUDA-graph steps), the atoms of warp_predicates.Predicates (E030) recorded on a wp.Tape,
-  the smoothed robustness and its gradient with respect to the atoms from
-  stl.warp_backend.Evaluator (E028: per-row matched parameters, matched_param(prog, method, eps),
-  forward and backward replayed as one CUDA graph), the tape's backward to the gradient with
-  respect to the sampled states, and the plant's vector-Jacobian product for that gradient scaled
-  by w per run. E029 scales the gradient with respect to the atoms by w before the pullback; the
-  two are equal in real arithmetic.
-- the trial pass at n (trials + 1) worlds in a second Plant: the trial points and the reference
-  lane of every run, their atoms and their smoothed robustness (Evaluator.value).
-Runs of one method and eps share one Evaluator; the runs must come in contiguous groups.
-
-The certificate (Referee): the float64 replay of the commands in MuJoCo C (mujoco.rollout, which
-carries the solver warm start across all physics steps, where the Plant and tasks.panda reset it
-at every interval; the two agree while no constraint row is active), the unsmoothed margins of
-tasks.workspace.margins as Warp float64 atoms (Predicates with eps_length = eps_speed = 0), and
-the exact robustness from the Warp backend in float64, with the root conjunction's children.
-
-Trace columns (TRACE_KEYS, one row per run and iterate, at the iterate before the step): as
-constrained.TRACE_KEYS, except that "exact" holds the float64 certificate at that iterate (E029
-kept the float32 exact robustness of the gradient pass there).
-"""
+"""First-order augmented Lagrangian solver under single shooting with one constraint on the smoothed
+robustness of the whole specification (the single-constraint formulation of Appendix I-C)."""
 import os
 import time
 
@@ -59,6 +19,7 @@ MU0 = 1.0
 MU_MAX = 64.0
 ALPHA_MIN = 1e-6
 VIOL_TOL = 1e-3
+# one trace row per run and iterate, at the iterate before the step; "exact" is the float64 replay's value
 TRACE_KEYS = ("L", "rho", "exact", "effort", "grad_norm", "w", "mu", "nu", "step", "trial", "accepted", "L_next", "rho_next", "rho_ref")
 GRADIENT = ("rollout", "stl", "plant_backward")
 TRIAL = ("trial_rollout", "trial_stl")
@@ -66,7 +27,7 @@ REFEREE = ("referee_mujoco", "referee_stl")
 
 
 # ------------------------------------------------------------------
-# the solver's arithmetic (constrained.py in NumPy)
+# the solver's arithmetic
 
 def effort(V):
     """sum(V^2) / N per run, V (..., N, m)."""
@@ -88,6 +49,8 @@ def multiplier(nu, mu, r, delta):
 
 
 def penalty(mu, viol_start, viol_end, mu_max=MU_MAX, tol=VIOL_TOL):
+    """mu doubled, up to mu_max, where the violation at the block's end exceeds tol and half of its
+    value at the block's start."""
     return np.where((viol_end > 0.5 * viol_start) & (viol_end > tol), np.minimum(2.0 * mu, mu_max), mu)
 
 
@@ -100,8 +63,8 @@ def al_change(V, Vt, r, rt, nu, mu, lam, delta):
 
 
 def select_step(V, alpha, dL, g, a, Vt, c=ARMIJO_C):
-    """The first trial j with dL <= c g . (Vt - V) per run (constrained.select_step). Returns the new
-    V, the new step scale, the accepted index, the acceptance flags and the picking function."""
+    """The first trial j with dL <= c g . (Vt - V) per run. Returns the new V, the new step scale, the
+    accepted index, the acceptance flags and the picking function."""
     n, trials = a.shape
     drop = np.sum(g[:, None] * (Vt - V[:, None]), (-2, -1))
     ok = np.isfinite(dL) & (dL <= c * drop)
@@ -114,8 +77,8 @@ def select_step(V, alpha, dL, g, a, Vt, c=ARMIJO_C):
 
 
 def certification(ref, delta=0.0):
-    """From certificate values ref (n, K) at iterates 0..K-1: the first iterate with ref >= delta
-    (-1 if none) and whether every later recorded value stays >= delta (constrained.certification)."""
+    """From exact robustness values ref (n, K) at iterates 0..K-1: the first iterate with ref >= delta
+    (-1 if none) and whether every later value stays >= delta."""
     ok = np.asarray(ref) >= delta
     first = np.where(ok.any(1), np.argmax(ok, 1), -1)
     tail_ok = np.flip(np.logical_and.accumulate(np.flip(ok, 1), 1), 1)
@@ -127,20 +90,8 @@ def certification(ref, delta=0.0):
 # the plant-and-specification function
 
 class Chain:
-    """Controls to the smoothed robustness and its pullback, all Warp (module docstring).
-
-    Args:
-        spec_plant: the tasks.workspace.Plant of the atoms (model, site, bodies).
-        sc: the tasks.workspace.Scenario.
-        prog: the compiled STL program (prog.T samples, the root last).
-        x0 (n, 14): the start state of each run.
-        pick, handover (n, 3); hc (n, T, S_h, 3); hr (S_h,): the instance of each run.
-        groups: ((method, eps, a, b), ...), runs a..b-1 smoothed by method at eps; an entry
-            (method, eps, a, b, program) smooths its runs with that program instead of prog (E034:
-            one program per wait, every program over the same prog.T samples and atoms).
-        trials: the line search's trial count; the trial Plant holds n (trials + 1) worlds.
-        device: a Warp CUDA device (the Plant's graphs need CUDA ordinal 0).
-    """
+    """Controls to the smoothed robustness of n runs, its gradient and the trial values of the line search.
+    groups ((method, eps, a, b[, program]), ...): runs a..b-1 use method at node error eps; x0 is (n, 14)."""
 
     def __init__(self, spec_plant, sc, prog, x0, pick, handover, hc, hr, groups, trials=TRIALS, device="cuda:0"):
         self.device = wp.get_device(device)
@@ -204,7 +155,7 @@ class Chain:
         return rho
 
     def pullback(self, w):
-        """sum over runs of w_r d rho_r / d V (n, T - 1, 7) at the last forward()."""
+        """w_r d rho_r / d V_r for every run r, (n, T - 1, 7), at the last forward()."""
         t0 = time.perf_counter()
         gV, _ = self.plant.vjp(self.C * np.asarray(w, np.float32)[:, None, None])
         self._mark("plant_backward", t0)
@@ -225,9 +176,8 @@ class Chain:
 
 
 class Referee:
-    """The float64 certificate of n runs (module docstring): __call__(V (n, T - 1, 7)) returns
-    the exact robustness (n,) and the root conjunction's children (n, c). blocks ((a, b, program), ...),
-    if given, evaluates runs a..b-1 with that program (E034: one per wait; the same root layout)."""
+    """The exact robustness of n runs on a float64 MuJoCo replay: __call__(V (n, T - 1, 7)) returns it
+    (n,) and the top node's children (n, c); blocks ((a, b, program), ...) gives runs a..b-1 a program."""
 
     def __init__(self, spec_plant, sc, prog, x0, pick, handover, hc, hr, device="cuda:0", mjm=None, n_sub=10, times=None, blocks=None):
         from ..tasks import panda
@@ -242,7 +192,7 @@ class Referee:
         self.umax = np.asarray(panda.torque_limit(), np.float64)
         self.device = wp.get_device(device)
         self.pred = Predicates(spec_plant, sc, self.T, nworld=self.n, dtype=wp.float64, device=device)
-        self.pred.consts[-2:] = [wp.float64(0.0), wp.float64(0.0)]  # eps_length, eps_speed: workspace.margins
+        self.pred.consts[-2:] = [wp.float64(0.0), wp.float64(0.0)]  # eps_length, eps_speed: unsmoothed norms
         self.pred.set_instance(np.asarray(pick, np.float64), np.asarray(handover, np.float64), np.asarray(hc, np.float64), np.asarray(hr, np.float64))
         self.prog = prog
         root = prog.steps[prog.root]
@@ -253,7 +203,7 @@ class Referee:
         self.times = {} if times is None else times
 
     def states(self, V):
-        """The float64 MuJoCo C states (n, T, 14) at the interval boundaries."""
+        """The float64 MuJoCo states (n, T, 14) at the interval boundaries."""
         U = np.repeat(np.asarray(V, np.float64) * self.umax, self.n_sub, axis=1)
         st, _ = mj_rollout.rollout(self.mjm, self.datas, self.state0, U)
         return np.concatenate([self.x0[:, None], st[:, self.n_sub - 1::self.n_sub, 1:]], 1)
@@ -268,7 +218,7 @@ class Referee:
         v = wp.array(np.ascontiguousarray(X[..., nq:].reshape(-1, nq)), dtype=wp.float64, device=self.device)
         Z = self.pred.scores(q, v)
         rho, conj = np.empty(self.n), []
-        for a, b, pg in self.blocks:  # over programs (one per wait; a handful)
+        for a, b, pg in self.blocks:  # over programs (a handful)
             vals, offsets = evaluate_warp(pg, Z if (a, b) == (0, self.n) else Z[a:b], "exact")
             vals = vals.numpy()
             root = pg.steps[pg.root]
@@ -290,8 +240,8 @@ def init_state(V0, alpha0):
 
 
 def iterate(chain, state, ex, lam, delta, c=ARMIJO_C):
-    """One iterate of normalized descent on L (constrained.make_segment's iterate). Returns the
-    new (V, alpha) and the trace row (n, len(TRACE_KEYS)); ex is the certificate at V."""
+    """One step of normalized gradient descent on the augmented Lagrangian with an Armijo line search. Returns
+    the new (V, alpha) and the trace row (n, len(TRACE_KEYS)); ex is the exact robustness at V."""
     V, alpha, nu, mu = state["V"], state["alpha"], state["nu"], state["mu"]
     n, N = V.shape[:2]
     trials = chain.lanes - 1
@@ -323,9 +273,8 @@ def iterate(chain, state, ex, lam, delta, c=ARMIJO_C):
 
 
 def block_update(state, r_start, r_end, delta, tol=None):
-    """The multiplier and penalty updates after a block of EVERY iterates. tol: the violation below
-    which the penalty is not doubled, a number or one per run; None reads the module's VIOL_TOL at
-    the call (E036's sensitivity batch sets a per-run value; every earlier run used 1e-3)."""
+    """The multiplier and penalty updates after a block of EVERY iterates. tol: the violation below which
+    the penalty is not doubled, a number or one per run (None: VIOL_TOL)."""
     nu, mu = state["nu"], state["mu"]
     state["nu"] = multiplier(nu, mu, r_end, delta).astype(np.float32)
     state["mu"] = penalty(mu, np.maximum(0.0, delta - r_start), np.maximum(0.0, delta - r_end),
@@ -333,12 +282,8 @@ def block_update(state, r_start, r_end, delta, tol=None):
 
 
 def solve(chain, referee, state, iterations, lam, delta, ref=None, log=None, stop_certified=False, viol_tol=None):
-    """iterations more iterates (a multiple of EVERY unless stop_certified) from state, with the
-    certificate after every iterate. ref: the certificate (rho, conjuncts) at state["V"] if known.
-    Returns the records: trace (n, K, 14), V (n, K, N, m) after each step, referee64 (n, K + 1),
-    conjuncts64 (n, K + 1, c) from state["V"] on, seconds (K, components) per iterate with the
-    component names, and wall (K + 1,) the cumulative seconds after each certificate. viol_tol: as
-    block_update's tol (None: the module's VIOL_TOL)."""
+    """iterations more iterates from state, with the float64 replay after each. Returns trace (n, K, 14),
+    V (n, K, N, m), referee64 (n, K + 1), conjuncts64 (n, K + 1, c), seconds (K, parts), wall (K + 1,)."""
     if iterations % EVERY and not stop_certified:
         raise ValueError("iterations must be a multiple of EVERY")
     keys = GRADIENT + TRIAL + REFEREE + ("solver",)

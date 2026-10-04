@@ -1,116 +1,44 @@
-"""Scripted human capsules for the shared-workspace scenario (E019), in NumPy.
-
-The human is K_h = 6 capsules, each a segment (proximal, distal) with a radius:
-
-    torso, head, upper_arm_r, forearm_r, upper_arm_l, forearm_l
-
-in the robot base frame (z up, metres). The robot base sits on the table top at z = 0; the
-human stands on the floor at z = FLOOR across the table and faces the shared zone.
-
-Motion (Script, every field an argument). The human's standing point is the zone centre plus
-`stand` metres along the approach direction (cos phi, sin phi). It walks in from `walk`
-metres further out, arriving at t_arrive. Its right hand then follows
-
-    rest -> reach target -> hover point,
-
-moving between t_reach and t_reach + t_move, holding at the target until t_release, and
-moving to the hover point until t_release + t_move, where it stays. The reach target is the
-zone centre moved `depth` metres toward the robot, at height `reach_z`; the hover point lies
-`hover` metres outside the zone's edge toward the human, at height `hover_z`. So `depth`
-sets the closest approach during the reach, t_release - t_reach how long the hand stays in
-the zone, and `hover` how close the hand stays to the zone afterwards. Blends are
-C1 cosine steps. The elbow follows two-link inverse kinematics with the pole pointing down;
-a target beyond the arm's reach is clipped to 0.98 of it. The left arm hangs.
-
-Pass and wait (E022; off unless `anchor` is set, so the defaults give the motion above).
-`anchor` is a point of the arm's path (robot base frame), and n the unit vector from it to
-the right shoulder of the standing human. With an anchor, the hand returns to rest at the
-release instead of going to the hover point, and then:
-- the pass: over [t_pass - pass_width/2, t_pass + pass_width/2] the hand moves on the straight
-  line from rest to the pass point anchor + pass_gap n and back, with the C1 bump
-  1/2 - 1/2 cos(2 pi (t - t_pass + pass_width/2) / pass_width), which is 1 at t_pass; so the
-  hand is pass_gap from the anchor at t_pass, the closest approach of the pass when the
-  angle at the pass point between the anchor and rest is at least 90 degrees
-  (tests/test_regime.py checks the closest approach at one geometry, and the anchor pair's
-  margins on regime instances);
-- the wait: from t_wait = t_pass + pass_width/2 the hand moves to the standoff point
-  anchor + standoff n (C1 step over t_move), holds there for `wait` seconds, and returns to
-  rest over t_move. So the hand is `standoff` from the anchor over
-  [t_wait + t_move, t_wait + t_move + wait].
-The phases do not overlap when t_release + t_move <= t_pass - pass_width/2; the motion is
-the sum of the phase displacements, which equals the sequential motion then.
-
-Trapezoid pass (E024; off unless `pre_gap` is set, so the defaults give the bump above). With
-pre_gap, the pass holds the hand at the pass point for pass_hold seconds and replaces the bump
-and the separate move to the standoff:
-- rest -> pre point anchor + pre_gap n, C1 step over [t_a - t_move, t_a], t_a = t_pass -
-  pass_hold/2 - pass_ramp;
-- pre point -> pass point over [t_a, t_a + pass_ramp];
-- hold at the pass point over [t_pass - pass_hold/2, t_pass + pass_hold/2];
-- pass point -> standoff point over [t_pass + pass_hold/2, t_w], t_w = t_pass + pass_hold/2 +
-  pass_ramp;
-- hold at the standoff for `wait` seconds from t_w, then back to rest over t_move.
-All points lie on the line from the anchor to the right shoulder, so with pre_gap > standoff >
-pass_gap the two ramps move the hand straight toward and away from the anchor.
-
-Pinned plateau (E024, root's design revision 2 of 2026-09-30 08:55Z; off unless `standoff_from`
-is set, which takes precedence over pre_gap): the hand holds at the standoff for `wait` seconds
-from standoff_from (the handover dwell of the robot), and the trapezoid pass dips from the
-standoff to the pass point and back inside that hold:
-- rest -> standoff point, C1 step over [standoff_from - t_move, standoff_from];
-- standoff -> pass point over [t_a, t_a + pass_ramp], hold at the pass point over
-  [t_pass - pass_hold/2, t_pass + pass_hold/2], pass point -> standoff over the next pass_ramp;
-- at the standoff until standoff_from + wait, then back to rest over t_move. With the
-sampling interval h, a hold of pass_hold = (k - 1/2) h centred half a sample off the grid holds
-exactly k samples, and a ramp of pass_ramp = 5 h passes through at most 5 samples. Points beyond
-the arm's reach are clipped as above, so pass and standoff points must lie within
-0.98 (UPPER + FORE) of the shoulder for the stated distances to hold.
-
-capsules(script, times) returns endpoints (T, 6, 2, 3) and radii (6,), the layout of the
-trajectory file (tasks.human_file). Script fields may be arrays of a common shape B; the
-endpoints then have shape (B..., T, 6, 2, 3), for many scripts at once. spheres(endpoints, radii, spacing) covers each capsule
-by a chain of spheres: n = ceil(length / spacing) + 1 centres evenly spaced on the segment,
-radius sqrt(r^2 + (s/2)^2) with s the actual spacing, so every point within r of the
-segment lies in some sphere. The number per capsule is fixed from the first sample's
-lengths; segments are rigid in the script, so it holds for every sample.
-"""
+"""Scripted motion of a person as six capsules (torso, head, upper arms, forearms) in the robot base frame (z up,
+metres), and the chains of spheres that cover the capsules."""
 from dataclasses import dataclass
 
 import numpy as np
 
 NAMES = ("torso", "head", "upper_arm_r", "forearm_r", "upper_arm_l", "forearm_l")
-RADII = np.array([0.15, 0.10, 0.05, 0.045, 0.05, 0.045])
-FLOOR = -0.9
+RADII = np.array([0.15, 0.10, 0.05, 0.045, 0.05, 0.045])  # capsule radii in the order of NAMES, m
+FLOOR = -0.9  # z of the floor in the robot base frame, m
 HIP, SHOULDER, NECK, HEAD_TOP = 0.95, 1.45, 1.55, 1.78  # heights above the floor, m
-SHOULDER_HALF = 0.2
+SHOULDER_HALF = 0.2  # half the shoulder width, m
 UPPER, FORE = 0.32, 0.45  # upper arm; forearm including the hand, m
 
 
 @dataclass(frozen=True)
 class Script:
-    zone: tuple = (0.5, 0.0)
-    phi: float = 0.0
-    stand: float = 0.45
-    walk: float = 1.0
+    """Parameters of the motion: the person walks in to the standing point, and the right hand moves from rest to the
+    reach target at t_reach and on to the hover point at t_release. Seconds, metres, radians."""
+    zone: tuple = (0.5, 0.0)  # (x, y) of the zone centre
+    phi: float = 0.0  # direction from the zone centre to the person
+    stand: float = 0.45  # distance of the standing point from the zone centre
+    walk: float = 1.0  # the person starts this much further out and arrives at t_arrive
     t_arrive: float = 1.0
     t_reach: float = 2.0
-    t_move: float = 0.6
+    t_move: float = 0.6  # duration of each move of the hand
     t_release: float = 3.4
-    depth: float = 0.0
+    depth: float = 0.0  # the reach target lies this far beyond the zone centre, away from the person
     reach_z: float = 0.10
-    hover: float = 0.05
+    hover: float = 0.05  # the hover point lies this far outside the zone's radius, on the person's side
     hover_z: float = 0.15
     zone_radius: float = 0.2
-    anchor: object = None  # E022: a point of the arm's path, (3,) or (B..., 3); None keeps the motion above
-    t_pass: float = 6.0
-    pass_width: float = 0.6
-    pass_gap: float = 0.3
-    standoff: float = 0.35
-    wait: float = 4.0
-    pre_gap: object = None  # E024: the trapezoid pass (see the module docstring); None keeps the bump
-    pass_hold: float = 0.19
-    pass_ramp: float = 0.1
-    standoff_from: object = None  # E024: the pinned plateau (see the module docstring); None keeps the pass above
+    anchor: object = None  # (B..., 3); when set, the hand returns to rest at t_release, then passes and waits near it
+    t_pass: float = 6.0  # centre of the pass
+    pass_width: float = 0.6  # duration of the cosine pass (pre_gap unset)
+    pass_gap: float = 0.3  # distance of the pass point from the anchor
+    standoff: float = 0.35  # distance of the standoff point, where the hand waits, from the anchor
+    wait: float = 4.0  # duration of the hold at the standoff point
+    pre_gap: object = None  # when set, the pass is a trapezoid that ramps in from this distance from the anchor
+    pass_hold: float = 0.19  # duration of the trapezoid's hold at the pass point
+    pass_ramp: float = 0.1  # duration of each ramp of the trapezoid
+    standoff_from: object = None  # when set, the start of the hold at the standoff; the pass leaves and returns to it
 
 
 def _step(t, t0, t1):
@@ -120,7 +48,8 @@ def _step(t, t0, t1):
 
 
 def _elbow(shoulder, hand, pole):
-    """Two-link inverse kinematics: the elbow (T, 3) and the reachable hand (T, 3)."""
+    """Two-link inverse kinematics: the elbow and the hand (..., 3), the hand pulled to 0.98 (UPPER + FORE) from the
+    shoulder when it lies beyond that."""
     d = hand - shoulder
     dist = np.linalg.norm(d, axis=-1, keepdims=True)
     n = d / dist
@@ -207,7 +136,7 @@ def _pass_and_wait(script, t, f, rest):
 
 
 def trapezoid_times(script):
-    """(t_a, hold start, hold end, t_w, wait end) of the trapezoid pass, as arrays (B...)."""
+    """(ramp-in start, hold start, hold end, ramp-out end, wait end) of the trapezoid pass, as arrays (B...)."""
     f = lambda v: np.asarray(v, np.float64)
     h0 = f(script.t_pass) - f(script.pass_hold) / 2
     h1 = f(script.t_pass) + f(script.pass_hold) / 2
@@ -226,7 +155,8 @@ def _trapezoid(script, t, f, rest):
 
 
 def pinned_times(script):
-    """(standoff start, t_a, hold start, hold end, t_w, standoff end) of the pinned plateau, arrays (B...)."""
+    """(standoff start, ramp-in start, hold start, hold end, ramp-out end, standoff end) with standoff_from set,
+    as arrays (B...)."""
     f = lambda v: np.asarray(v, np.float64)
     h0 = f(script.t_pass) - f(script.pass_hold) / 2
     h1 = f(script.t_pass) + f(script.pass_hold) / 2
@@ -235,7 +165,8 @@ def pinned_times(script):
 
 
 def _pinned(script, t, f, rest):
-    """Displacement of the right hand from rest by the pinned plateau with the pass inside it."""
+    """Displacement of the right hand from rest by the hold at the standoff with the trapezoid pass inside it,
+    (B..., T, 3)."""
     _, p, q = pass_points(script)
     p, q = p[..., None, :], q[..., None, :]  # (B..., 1, 3)
     s0, ta, h0, h1, tw, se = (f(v) for v in pinned_times(script))
@@ -248,10 +179,11 @@ def spheres(endpoints, radii, spacing):
     """Sphere chains covering the capsules: centres (..., T, S, 3), radii (S,), and the capsule
     index of every sphere (S,), from endpoints (..., T, K, 2, 3)."""
     endpoints = np.asarray(endpoints, np.float64)
+    # the lengths at the first sample set the number of spheres per capsule
     length = np.linalg.norm(endpoints.reshape((-1,) + endpoints.shape[-3:])[0, :, 1] - endpoints.reshape((-1,) + endpoints.shape[-3:])[0, :, 0], axis=-1)
     count = np.ceil(length / spacing).astype(int) + 1
     owner = np.repeat(np.arange(len(count)), count)
-    frac = np.concatenate([np.linspace(0.0, 1.0, c) for c in count])  # over capsules (model structure)
+    frac = np.concatenate([np.linspace(0.0, 1.0, c) for c in count])
     gap = length[owner] / (count[owner] - 1)
     centres = endpoints[..., owner, 0, :] + frac[:, None] * (endpoints[..., owner, 1, :] - endpoints[..., owner, 0, :])
     return centres, np.sqrt(np.asarray(radii)[owner] ** 2 + (gap / 2) ** 2), owner

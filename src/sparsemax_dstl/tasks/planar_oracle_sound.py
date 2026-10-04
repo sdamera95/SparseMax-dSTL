@@ -1,17 +1,4 @@
-"""E049 round 3: independent NumPy evaluation of the sound log-sum-exp from its definition (no JAX), used to
-check the JAX values of planar_disk.matched('lse_sound').
-
-At a node whose row has $m$ valid entries, $\\beta = \\log m / \\varepsilon$ (a row with one entry is exact):
-
-- minimum: $-\\frac1\\beta \\log \\sum_i e^{-\\beta z_i}$, the plain log-sum-exp minimum;
-- maximum: $\\frac1\\beta \\log \\sum_i e^{\\beta z_i} - \\frac{\\log m}\\beta$, the plain log-sum-exp maximum shifted
-  down by $\\log m / \\beta = \\varepsilon$.
-
-Each lies between the exact extremum minus $\\varepsilon$ and the exact extremum. The walk over the
-STL specification is planar_oracle.ev's (negation carried down as a flag; the until as one flat row
-psi(k), phi(0..k) per witness k, then the maximum over the witnesses) with this reduction; planar_oracle.py
-itself is not edited.
-"""
+"""NumPy evaluation of the smoothed robustness under the sound log-sum-exp from its definition, without JAX."""
 import numpy as np
 
 from ..stl.formula import Always, And, Atom, Eventually, Not, Or, Until
@@ -19,7 +6,8 @@ from .planar_oracle import _lse
 
 
 def reduce(z, valid, kind, eps):
-    """Sound log-sum-exp reduction of each row of z (R, W) over its valid entries; kind 'max' or 'min'."""
+    """Sound log-sum-exp reduction of each row of z (R, W) over its m valid entries with beta = log(m) / eps: the
+    plain log-sum-exp minimum, and the plain maximum minus log(m) / beta; kind 'max' or 'min'."""
     m = valid.sum(1)
     beta = np.log(np.maximum(m, 2)) / eps
     if kind == "min":
@@ -50,7 +38,7 @@ def ev(f, S, ts, neg=False, eps=0.1):
     if isinstance(f, Not):
         return ev(f.child, S, ts, not neg, eps)
     if isinstance(f, (And, Or)):
-        z = np.stack([ev(c, S, ts, neg, eps) for c in f.children], 1)  # over the children (specification structure)
+        z = np.stack([ev(c, S, ts, neg, eps) for c in f.children], 1)
         return reduce(z, np.ones(z.shape, bool), "min" if isinstance(f, And) != neg else "max", eps)
     if isinstance(f, (Always, Eventually)):
         a, b = f.interval
