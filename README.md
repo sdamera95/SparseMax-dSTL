@@ -120,14 +120,14 @@ The Warp backend installs on a Jetson without JAX and runs on its GPU:
 ./deploy/orin/setup.sh
 ```
 
-The script installs NumPy, Warp, MuJoCo and MuJoCo Warp with `uv sync --locked --no-dev` and evaluates every measure on the board's GPU. [deploy/orin/README.md](deploy/orin/README.md) has the commands for the manipulator optimization on the board and the measurements in full. On a Jetson AGX Orin 64 GB against a workstation with one NVIDIA RTX PRO 6000 Blackwell Max-Q, the same commit and the same environment without JAX on both:
+The script installs NumPy, Warp, MuJoCo and MuJoCo Warp with `uv sync --locked --no-dev` and evaluates every measure on the board's GPU. [deploy/orin/README.md](deploy/orin/README.md) has the commands for the manipulator optimization on the board and the measurements in full. On a Jetson AGX Orin 64 GB against a workstation with one NVIDIA RTX PRO 6000 Blackwell Max-Q, the same code and the same environment without JAX on both:
 
 | | Workstation | Jetson AGX Orin 64 GB |
 |---|---|---|
-| one update of the manipulator optimization with one constraint per conjunct, eight trajectories, horizon 10 s | 6.7 s | 9.4 s |
+| one update of the manipulator optimization with one constraint per conjunct, eight trajectories, horizon 10 s | 6.6 s | 9.7 s |
 | of which the specification and its gradient | 0.02 s | 0.11 s |
 
-Over ten updates the exact robustness of the manipulator's trajectories differs between the two machines by at most $1.2 \times 10^{-5}$ and has the same sign after every update.
+Over ten updates the exact robustness of the eight trajectories, printed to four decimals, differs between the two machines in at most the last digit and has the same sign after every update.
 
 The paper ran the manipulator optimization on the same board with Warp built for CUDA 13, as the same code that runs on the workstation: the MuJoCo Warp simulation and its reverse pass, the predicates, the robustness, its gradient and the solver. It reports (Appendix II-G, Table XII), for one run at a horizon of 10 s:
 

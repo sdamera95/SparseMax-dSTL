@@ -8,7 +8,7 @@ The Warp backend runs on the board without JAX. Every command runs from the repo
 ./deploy/orin/setup.sh
 ```
 
-The script installs the base dependencies of `uv.lock` with `uv sync --locked --no-dev` (NumPy, Warp, MuJoCo and MuJoCo Warp, 12 packages with their dependencies), fetches the Franka Panda model, and runs `deploy/orin/check.py`. That prints the name of the GPU and, for each measure, the robustness of one until specification and the gradient weight on its violating samples:
+The script installs the base dependencies of `uv.lock` with `uv sync --locked --no-dev` (NumPy, Warp, MuJoCo, and MuJoCo Warp built from `third_party/mujoco_warp`; 12 packages with their dependencies), fetches the Franka Panda model, and runs `deploy/orin/check.py`. That prints the name of the GPU and, for each measure, the robustness of one until specification and the gradient weight on its violating samples:
 
 ```
 Orin
@@ -35,12 +35,15 @@ The script prints the exact robustness of the eight trajectories before the firs
 
 ## Measured
 
-One Jetson AGX Orin 64 GB against one workstation GPU (NVIDIA RTX PRO 6000 Blackwell Max-Q), the same environment without JAX on both. A process of another project was resident on the board's GPU; it showed no load before the runs, and its share during them could not be separated.
+One Jetson AGX Orin 64 GB against one workstation GPU (NVIDIA RTX PRO 6000 Blackwell Max-Q), the same tree and the same environment without JAX on both. A process of another project was resident on the board's GPU; it showed no load before the runs, and its share during them could not be separated.
 
 | | Workstation | Jetson AGX Orin |
 |---|---|---|
-| the optimization above, seconds per update | 6.7 | 9.4 |
-| of which the simulation, its reverse pass and the trial simulations (`rollout`, `plant_backward`, `trial_rollout`) | 1.18, 4.16, 1.28 | 1.53, 5.90, 1.70 |
+| the optimization above, seconds per update | 6.6 | 9.7 |
+| of which the simulation, its reverse pass and the trial simulations (`rollout`, `plant_backward`, `trial_rollout`) | 1.16, 4.12, 1.25 | 1.53, 6.18, 1.69 |
 | of which the specification and its gradient (`stl`) | 0.02 | 0.11 |
+| the script from start to end | 68 s | 102 s, and 180 s on the first run, which compiles Warp's kernels |
 
-On the two machines the exact robustness differs by $2 \times 10^{-8}$ after the first update and by at most $1.2 \times 10^{-5}$ over the ten, and has the same sign after every update.
+The script prints the exact robustness to four decimals. On the board's second run every printed value equals the workstation's, before the first update and after each of the ten; on its first run one value differs in the last digit (0.1717 against 0.1716). The sign is the same after every update.
+
+With the full install, `uv sync --locked`, the two test commands of the main README pass on the board: 381 tests in 28 minutes, then 2 in 2 minutes.

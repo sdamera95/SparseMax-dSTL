@@ -6,6 +6,8 @@ import warp as wp
 from sparsemax_dstl import Atom, Until, compile_formula
 from sparsemax_dstl.warp import Evaluator
 
+wp.config.log_level = wp.LOG_WARNING
+
 # stay out of the zone (predicate 0) until the pick (predicate 1), over 41 samples;
 # the trajectory is inside the zone on samples 10 to 13, and the pick happens at sample 30
 program = compile_formula(Until((0, 40), Atom(0), Atom(1)), T=41)
