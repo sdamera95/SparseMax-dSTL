@@ -6,7 +6,7 @@
 
 Differentiable Signal Temporal Logic (STL) in [Warp](https://github.com/NVIDIA/warp) and in JAX.
 
-**Warp.** The robustness of an STL specification and its gradient with respect to the predicate values, written as Warp kernels, for a batch of sampled trajectories. A specification is compiled once into an evaluation graph, and the kernels evaluate it under the exact robustness, the plain and the sound log-sum-exp (LSE), the generalized-mean robustness (GMR) [3], and SparseMax [2]. Every measure has a hand-written adjoint, and on a CUDA device the forward and backward passes are recorded as CUDA graphs. Paired with a Warp simulator, MuJoCo Warp in the manipulator example, a trajectory optimization under an STL specification runs with no call outside Warp, and it deploys on NVIDIA Jetson AGX boards: we ran it on a Jetson AGX Orin 64 GB ([measurements below](#on-nvidia-jetson-agx)).
+**Warp.** The robustness of an STL specification and its gradient with respect to the predicate values, written as Warp kernels, for a batch of sampled trajectories. A specification is compiled once into an evaluation graph, and the kernels evaluate it under the exact robustness, the plain and the sound log-sum-exp (LSE), the generalized-mean robustness (GMR) [2], and [SparseMax](https://arxiv.org/abs/2610.23837). Every measure has a hand-written adjoint, and on a CUDA device the forward and backward passes are recorded as CUDA graphs. Paired with a Warp simulator, MuJoCo Warp in the manipulator example, a trajectory optimization under an STL specification runs with no call outside Warp, and it deploys on NVIDIA Jetson AGX boards: we ran it on a Jetson AGX Orin 64 GB ([measurements below](#on-nvidia-jetson-agx)).
 
 **JAX.** The same measures on the same compiled graph, differentiated by JAX. SparseMax enters as two operators, `lower_max` and `lower_min`, that carry their own derivative.
 
@@ -19,9 +19,9 @@ The evaluation graph adopts the masking formulation of STLCG++ [1], the method o
 | `exact` | the exact robustness | none |
 | `lse_plain` | the plain log-sum-exp | $\beta$ |
 | `lse` | the sound log-sum-exp, a lower bound of the exact robustness | $\beta$ |
-| `gm_pm01`, `gm_pm10` | the generalized-mean robustness [3] of order $(0, 1)$ and $(-10, 10)$ | none |
-| `gm_exp` | the generalized-mean robustness [3] with exponential generating functions | the error per node $\varepsilon$ in Warp, $\beta$ in JAX |
-| `sparsemax` | SparseMax [2], a lower bound of the exact robustness | $\gamma$ |
+| `gm_pm01`, `gm_pm10` | the generalized-mean robustness [2] of order $(0, 1)$ and $(-10, 10)$ | none |
+| `gm_exp` | the generalized-mean robustness [2] with exponential generating functions | the error per node $\varepsilon$ in Warp, $\beta$ in JAX |
+| `sparsemax` | [SparseMax](https://arxiv.org/abs/2610.23837), a lower bound of the exact robustness | $\gamma$ |
 
 Both implementations take these names. For `gm_exp` the Warp evaluator takes the error per node $\varepsilon$ and uses $\beta = \log m / \varepsilon$ for a conjunction or disjunction of $m$ entries, and the JAX evaluator takes $\beta$; `sparsemax_dstl.jax.methods.SEMANTICS["gm_exp"]` is the JAX form that takes $\varepsilon$.
 
@@ -184,9 +184,7 @@ JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 
 [1] P. Kapoor, K. Mizuta, E. Kang and K. Leung, "STLCG++: A masking approach for differentiable signal temporal logic specification," IEEE Robotics and Automation Letters, 2025. Library: [stljax](https://github.com/UW-CTRL/stljax).
 
-[2] S. S. Damera, R. Matheu, J. S. Baras and C. Belta, "SparseMax-∂STL: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization," [arXiv:2610.23837](https://arxiv.org/abs/2610.23837), 2026.
-
-[3] N. Mehdipour, C.-I. Vasile and C. Belta, "Generalized mean robustness for signal temporal logic," IEEE Transactions on Automatic Control, vol. 70, no. 3, pp. 1949–1956, 2025.
+[2] N. Mehdipour, C.-I. Vasile and C. Belta, "Generalized mean robustness for signal temporal logic," IEEE Transactions on Automatic Control, vol. 70, no. 3, pp. 1949–1956, 2025.
 
 ## Citation
 
