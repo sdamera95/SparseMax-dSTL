@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "SparseMax-dSTL"
+type: software
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/sdamera95/SparseMax-dSTL"
+authors:
+  - family-names: Damera
+    given-names: Sai Sandeep
+preferred-citation:
+  type: article
+  title: "SparseMax-dSTL: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization"
+  authors:
+    - family-names: Damera
+      given-names: Sai Sandeep
+    - family-names: Matheu
+      given-names: Ryan
+    - family-names: Baras
+      given-names: John S.
+    - family-names: Belta
+      given-names: Calin
+  year: 2026
+  journal: "arXiv preprint arXiv:2610.23837"
+  doi: 10.48550/arXiv.2610.23837
+  url: "https://arxiv.org/abs/2610.23837"

@@ -184,15 +184,22 @@ JAX_PLATFORMS=cpu uv run pytest -q tests/test_warp_predicates.py
 
 [1] P. Kapoor, K. Mizuta, E. Kang and K. Leung, "STLCG++: A masking approach for differentiable signal temporal logic specification," IEEE Robotics and Automation Letters, 2025. Library: [stljax](https://github.com/UW-CTRL/stljax).
 
-[2] S. S. Damera, R. Matheu, J. S. Baras and C. Belta, "SparseMax-∂STL: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization."
+[2] S. S. Damera, R. Matheu, J. S. Baras and C. Belta, "SparseMax-∂STL: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization," [arXiv:2610.23837](https://arxiv.org/abs/2610.23837), 2026.
 
 [3] N. Mehdipour, C.-I. Vasile and C. Belta, "Generalized mean robustness for signal temporal logic," IEEE Transactions on Automatic Control, vol. 70, no. 3, pp. 1949–1956, 2025.
 
+## Citation
+
 ```bibtex
 @misc{damera2026sparsemax,
-  title  = {{SparseMax}-$\partial${STL}: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization},
+  title = {{SparseMax}-$\partial${STL}: Sound Robustness with Horizon-Independent Gradient Allocation for Temporal Logic Trajectory Optimization},
   author = {Damera, Sai Sandeep and Matheu, Ryan and Baras, John S. and Belta, Calin},
-  year   = {2026}
+  year = {2026},
+  eprint = {2610.23837},
+  archivePrefix = {arXiv},
+  primaryClass = {eess.SY},
+  doi = {10.48550/arXiv.2610.23837},
+  url = {https://arxiv.org/abs/2610.23837}
 }
 ```
 
