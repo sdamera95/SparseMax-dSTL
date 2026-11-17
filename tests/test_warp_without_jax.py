@@ -34,6 +34,14 @@ for name in ABSENT:
     raise SystemExit(name + " imported")
 """.replace("ABSENT", repr(ABSENT))
 BETA, GAMMA, EPS = 10.0, 0.1, 0.2
+# the sparse derivatives, the model predictive controller and the dual-arm plant, which are written in JAX
+SPARSE_MODULES = (
+    "sparsemax_dstl.mpc", "sparsemax_dstl.mpc.baselines", "sparsemax_dstl.mpc.conjuncts", "sparsemax_dstl.mpc.horizon",
+    "sparsemax_dstl.mpc.ipopt", "sparsemax_dstl.mpc.program", "sparsemax_dstl.mpc.simulation", "sparsemax_dstl.sparse",
+    "sparsemax_dstl.sparse.assembly", "sparsemax_dstl.sparse.coloring", "sparsemax_dstl.sparse.counts",
+    "sparsemax_dstl.sparse.patterns", "sparsemax_dstl.sparse.supports", "sparsemax_dstl.tasks.dual_arm",
+    "sparsemax_dstl.tasks.dual_arm_scenes",
+)
 
 
 def without_jax(code, *args, absent=True):
@@ -47,7 +55,7 @@ def without_jax(code, *args, absent=True):
 
 def test_only_the_jax_modules_need_jax():
     """Importing the package loads neither Warp nor JAX, and every module of the package imports except those of
-    sparsemax_dstl.jax and the task modules named *_jax and *_mjx."""
+    sparsemax_dstl.jax, the task modules named *_jax and *_mjx, and SPARSE_MODULES."""
     names = sorted(m.name for m in pkgutil.walk_packages(sparsemax_dstl.__path__, "sparsemax_dstl."))
     out = without_jax("""
         import json
@@ -62,7 +70,8 @@ def test_only_the_jax_modules_need_jax():
         print(json.dumps(failed))
     """, json.dumps(names)).split("\n")
     assert out[0] == "False"
-    assert json.loads(out[1]) == [n for n in names if n.startswith("sparsemax_dstl.jax") or n.endswith(("_jax", "_mjx"))]
+    assert json.loads(out[1]) == [n for n in names if n.startswith("sparsemax_dstl.jax") or n.endswith(("_jax", "_mjx"))
+                                  or n in SPARSE_MODULES]
     assert {"sparsemax_dstl.warp.evaluator", "sparsemax_dstl.warp.plant", "sparsemax_dstl.warp.predicates", "sparsemax_dstl.warp.solver",
             "sparsemax_dstl.warp.solver_conjuncts", "sparsemax_dstl.tasks.planar_warp", "sparsemax_dstl.tasks.workspace_program",
             "sparsemax_dstl.tasks.workspace_scene", "sparsemax_dstl.tasks.workspace_warp"} <= set(names)

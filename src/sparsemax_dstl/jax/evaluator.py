@@ -1,5 +1,7 @@
 """STL robustness of a compiled program in JAX. scores has shape (..., T, P): batch axes, then time, then predicates.
 A semantics is a name in REDUCTIONS or a pair (max_reduce, min_reduce) of functions reduce(z, param, mask)."""
+import math
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -200,3 +202,40 @@ def read(program, values):
     if program.outputs is None:
         raise ValueError("read() needs a program compiled with reads")
     return jnp.concatenate([values[s][..., rows] for s, rows in program.outputs], -1)
+
+
+# ------------------------------------------------------------------
+# log-sum-exp with the error bound of the sparsemax operator at the same number of entries
+
+def matched_beta(m, gamma):
+    """The log-sum-exp parameter whose error bound log(m)/beta equals sparsemax's gamma/2 (1 - 1/m), for m > 1."""
+    return math.log(m) / (gamma / 2 * (1 - 1 / m))
+
+
+def _matched_rows(z, gamma, mask):
+    m = jnp.sum(jnp.broadcast_to(mask, z.shape), axis=-1).astype(z.dtype)
+    safe = jnp.maximum(m, 2)
+    return m, jnp.log(safe) / (gamma / 2 * (1 - 1 / safe))
+
+
+def lse_max_matched(z, gamma, mask=None):
+    """Sound log-sum-exp maximum at the parameter matched to sparsemax's gamma; exact over one entry."""
+    z = jnp.asarray(z)
+    if mask is None:
+        m = z.shape[-1]
+        return z[..., 0] if m == 1 else lse_max(z, matched_beta(m, gamma))
+    m, b = _matched_rows(z, gamma, mask)
+    return jnp.where(m > 1, lse_max(z * b[..., None], 1.0, mask) / b, exact_max(z, None, mask))
+
+
+def lse_min_matched(z, gamma, mask=None):
+    """Log-sum-exp minimum at the parameter matched to sparsemax's gamma; exact over one entry."""
+    z = jnp.asarray(z)
+    if mask is None:
+        m = z.shape[-1]
+        return z[..., 0] if m == 1 else lse_min(z, matched_beta(m, gamma))
+    m, b = _matched_rows(z, gamma, mask)
+    return jnp.where(m > 1, lse_min(z * b[..., None], 1.0, mask) / b, exact_min(z, None, mask))
+
+
+REDUCTIONS["lse_matched"] = (lse_max_matched, lse_min_matched)
