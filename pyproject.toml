@@ -1,7 +1,7 @@
 [project]
 name = "sparsemax-dstl"
-version = "0.1.0"
-description = "Differentiable signal temporal logic robustness in Warp with MuJoCo Warp and in JAX with MJX, with the SparseMax smoothing"
+version = "0.2.0"
+description = "Differentiable signal temporal logic robustness in Warp with MuJoCo Warp and in JAX with MJX, with the SparseMax smoothing, and sparse derivatives of STL-constrained nonlinear programs for model predictive control"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -21,7 +21,14 @@ jax = [
     "jax>=0.11.2",
     "mujoco-mjx~=3.12.0",
 ]
-# what the notebooks in examples/ use beside the backends
+# sparse differentiation and receding-horizon control with IPOPT through CasADi
+sparse = [
+    "sparsemax-dstl[jax]",
+    "asdex==0.6.0",
+    "casadi==3.8.1",
+    "scipy>=1.18.1",
+]
+# what the notebooks use beside the backends
 notebooks = [
     "ipykernel>=7.3.0",
     "matplotlib>=3.11.2",
@@ -30,7 +37,7 @@ notebooks = [
 
 [dependency-groups]
 dev = [
-    "sparsemax-dstl[jax,notebooks]",
+    "sparsemax-dstl[jax,notebooks,sparse]",
     "pytest>=9.1.1",
     "scipy>=1.18.1",
 ]
@@ -48,6 +55,8 @@ testpaths = ["tests"]
 [tool.uv.sources]
 # MuJoCo Warp with reverse-mode derivatives: the copy of the adjoint fork in this repository (third_party/mujoco_warp/SOURCE.md)
 mujoco-warp = { path = "third_party/mujoco_warp" }
+# asdex at the commit of its repository that the paper's measurements used (version 0.6.0)
+asdex = { git = "https://github.com/adrhill/asdex.git", rev = "da130b048b72c03e5ac1cb154968797bc32868b8" }
 
 [tool.uv]
 # the fork's own pyproject points mujoco and warp-lang at nightly indexes; keep both on PyPI
