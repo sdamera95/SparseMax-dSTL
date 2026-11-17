@@ -1,6 +1,4 @@
 """Tests of the Warp predicates (sparsemax_dstl.warp.predicates) against tasks.workspace_mjx.scores on the CPU in float32 and float64."""
-import contextlib
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -21,7 +19,7 @@ B, T, NH = 2, 5, 5
 
 
 def x64(dtype):
-    return jax.enable_x64(True) if dtype == np.float64 else contextlib.nullcontext()
+    return jax.enable_x64(dtype == np.float64)
 
 
 def case(mx, plant, sc, rng):
