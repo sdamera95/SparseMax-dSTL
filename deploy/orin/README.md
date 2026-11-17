@@ -25,7 +25,7 @@ Tested on a Jetson AGX Orin 64 GB with L4T R39.2.1, CUDA 13.2 and uv 0.12.12. Th
 
 ## The manipulator optimization
 
-Ten updates of the optimization of Section V-B of the paper with one constraint per conjunct, from eight violating initial trajectories of the 10 s task under SparseMax at $\varepsilon = 0.2$. The trajectories are in `examples/data/manipulator_H10_w2.npz` (the pick window opens at 2 s; exact robustness $-0.05$ and $-0.10$), and `examples/manipulator.ipynb` runs the same eight on a workstation.
+Ten updates of the optimization of Section V-B of the paper with one constraint per conjunct, from eight violating initial trajectories of the 10 s task under SparseMax at $\varepsilon = 0.2$. The trajectories are in `notebooks/sparsemax-robustness/data/manipulator_H10_w2.npz` (the pick window opens at 2 s; exact robustness $-0.05$ and $-0.10$), and `notebooks/sparsemax-robustness/manipulator.ipynb` runs the same eight on a workstation.
 
 ```bash
 uv run --locked --no-dev python deploy/orin/optimize.py

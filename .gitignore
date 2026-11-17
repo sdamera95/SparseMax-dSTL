@@ -15,4 +15,6 @@ out/
 *.npz
 
 # The data the notebooks read
-!examples/data/*.npz
+!notebooks/sparsemax-robustness/data/*.npz
+!notebooks/sparse-differentiation/data/*.npz
+!tests/data/*.npz

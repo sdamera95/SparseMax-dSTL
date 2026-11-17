@@ -120,14 +120,14 @@ def test_manipulator_scene_and_programs():
     out = without_jax("""
         import json
         from sparsemax_dstl.tasks import panda, workspace_program, workspace_scene, workspace_warp
-        I = workspace_scene.load("examples/data/manipulator_H10.npz")
+        I = workspace_scene.load("notebooks/sparsemax-robustness/data/manipulator_H10.npz")
         sc = workspace_scene.scenario(I["H"], I["wait"][0])
         programs = (workspace_program.core_program(sc, I["n_h"]),) + workspace_program.conj_programs(sc, I["n_h"])
         sizes = [[len(p.steps), sum(st.length for st in p.steps)] for p in programs]
         print(json.dumps([workspace_program.N_R, I["n_h"], sizes, panda.torque_limit().tolist(), I["hc"].tobytes().hex()]))
     """)
     n_r, n_h, got, torque, hc = json.loads(out)
-    I = workspace_scene.load(str(ROOT / "examples/data/manipulator_H10.npz"))
+    I = workspace_scene.load(str(ROOT / "notebooks/sparsemax-robustness/data/manipulator_H10.npz"))
     sc = workspace_scene.scenario(I["H"], I["wait"][0])
     assert n_r == workspace_program.N_R and n_h == I["n_h"] and hc == I["hc"].tobytes().hex()
     assert got == sizes((workspace_program.core_program(sc, n_h),) + workspace_program.conj_programs(sc, n_h))

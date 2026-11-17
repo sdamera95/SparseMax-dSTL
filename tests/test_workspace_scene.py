@@ -1,4 +1,4 @@
-"""Tests of the manipulator's scene and its initial trajectories in examples/data (tasks.workspace_scene), on the CPU."""
+"""Tests of the manipulator's scene and its initial trajectories in notebooks/sparsemax-robustness/data (tasks.workspace_scene), on the CPU."""
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +13,7 @@ from sparsemax_dstl.tasks import workspace_warp
 from sparsemax_dstl.warp import Evaluator
 
 wp.config.log_level = wp.LOG_WARNING
-DATA = Path(__file__).resolve().parents[1] / "examples" / "data"
+DATA = Path(__file__).resolve().parents[1] / "notebooks" / "sparsemax-robustness" / "data"
 HAND = 17  # index of the hand's sphere in the person's cover
 
 

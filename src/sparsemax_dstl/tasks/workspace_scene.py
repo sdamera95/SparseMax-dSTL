@@ -1,5 +1,5 @@
 """The scene of the manipulator example as the paper runs it (Section V-B, Appendix I-B): the scenario at a horizon and an
-opening time of the pick window, the until conjunct's program, and the initial trajectories of examples/data."""
+opening time of the pick window, the until conjunct's program, and the initial trajectories of notebooks/sparsemax-robustness/data."""
 import json
 from fractions import Fraction
 
@@ -47,7 +47,7 @@ def until_program(H, w, n_h):
 
 
 def load(path):
-    """The initial trajectories of a file of examples/data as a dict: normalized torques V0 (n, T - 1, 7), x0 (n, 14), pick and handover
+    """The initial trajectories of a file of notebooks/sparsemax-robustness/data as a dict: normalized torques V0 (n, T - 1, 7), x0 (n, 14), pick and handover
     (n, 3), opening time wait (n,), initial exact robustness group (n,), horizon H, and the person's spheres hc (n, T, S, 3), hr (S,)."""
     z = np.load(path)
     I = {k: z[k] for k in ("V0", "pick", "handover", "wait", "group", "location")}

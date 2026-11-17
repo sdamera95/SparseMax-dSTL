@@ -14,7 +14,7 @@ from sparsemax_dstl.warp import solver_conjuncts
 
 wp.config.log_level = wp.LOG_WARNING
 updates = int(sys.argv[1]) if len(sys.argv) > 1 else 10
-R = scene.runs(scene.load("examples/data/manipulator_H10_w2.npz"), ("sparsemax",), 0.2)
+R = scene.runs(scene.load("notebooks/sparsemax-robustness/data/manipulator_H10_w2.npz"), ("sparsemax",), 0.2)
 chain, referee = manipulator.conjunct_chain(R)
 state = solver_conjuncts.init_state(R["V0"], scene.ALPHA0, chain.K)
 

@@ -12,7 +12,7 @@ from sparsemax_dstl.warp import solver, solver_conjuncts
 
 pytestmark = pytest.mark.skipif(wp.get_cuda_device_count() == 0, reason="needs a CUDA device")
 wp.config.log_level = wp.LOG_WARNING
-DATA = Path(__file__).resolve().parents[1] / "examples" / "data"
+DATA = Path(__file__).resolve().parents[1] / "notebooks" / "sparsemax-robustness" / "data"
 
 
 def test_until_torque_gradient_at_10_s():
