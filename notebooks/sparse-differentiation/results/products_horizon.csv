@@ -1,0 +1,19 @@
+scene,start,horizon,comparator,variant,quantity,value,unit,smallest,largest,first_quartile,third_quartile,statistic,values,status,machine,cores,threads,power_mode,governor
+five-cell zone,,100,dense AD,one product per variable,Hessian of the Lagrangian products,4200.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,100,prescribed pattern,star coloring,Hessian of the Lagrangian products,1011.5,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,100,supports' pattern,star coloring,Hessian of the Lagrangian products,59.5,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,200,dense AD,one product per variable,Hessian of the Lagrangian products,8400.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,200,prescribed pattern,star coloring,Hessian of the Lagrangian products,1204.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,200,supports' pattern,star coloring,Hessian of the Lagrangian products,63.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,400,dense AD,one product per variable,Hessian of the Lagrangian products,16800.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,400,prescribed pattern,star coloring,Hessian of the Lagrangian products,1204.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+five-cell zone,,400,supports' pattern,star coloring,Hessian of the Lagrangian products,63.0,,,,,,median over 10 control periods,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,100,dense AD,one reverse product per constraint,constraint Jacobian products,2830,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,100,CasADi's detected pattern,CasADi's coloring (reverse),constraint Jacobian products,32,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,100,supports' pattern,greedy row coloring,constraint Jacobian products,10,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,200,dense AD,one reverse product per constraint,constraint Jacobian products,5723,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,200,CasADi's detected pattern,CasADi's coloring (reverse),constraint Jacobian products,98,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,200,supports' pattern,greedy row coloring,constraint Jacobian products,12,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,400,dense AD,one reverse product per constraint,constraint Jacobian products,11500,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,400,CasADi's detected pattern,CasADi's coloring (reverse),constraint Jacobian products,130,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance
+64-cell circle,,400,supports' pattern,greedy row coloring,constraint Jacobian products,13,,,,,,one control period (233) at the start point,,,AMD Ryzen 9 7950X,12 of 16,,,performance

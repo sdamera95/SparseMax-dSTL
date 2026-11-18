@@ -1,0 +1,9 @@
+scene,start,horizon,comparator,variant,quantity,value,unit,smallest,largest,first_quartile,third_quartile,statistic,values,status,machine,cores,threads,power_mode,governor
+64-cell circle,,200,prescribed pattern,,constraint Jacobian entries of the specification rows,146398,,,,,,control period 50 of the reference motion,,,,,,,
+64-cell circle,,200,prescribed pattern,,constraint Jacobian products,95,,,,,,control period 50 of the reference motion,,,,,,,
+64-cell circle,,200,supports' pattern,,constraint Jacobian entries of the specification rows,7392,,,,,,control period 50 of the reference motion,,,,,,,
+64-cell circle,,200,supports' pattern,,constraint Jacobian products,13,,,,,,control period 50 of the reference motion,,,,,,,
+five-cell zone,,400,prescribed pattern,,Hessian of the Lagrangian upper entries of the joint positions,2944298,,,,,,control period 0 of the reference motion,,,,,,,
+five-cell zone,,400,prescribed pattern,,Hessian of the Lagrangian products,1204,,,,,,control period 0 of the reference motion,,,,,,,
+five-cell zone,,400,supports' pattern,,Hessian of the Lagrangian upper entries of the joint positions,27363,,,,,,control period 0 of the reference motion,,,,,,,
+five-cell zone,,400,supports' pattern,,Hessian of the Lagrangian products,63,,,,,,control period 0 of the reference motion,,,,,,,
