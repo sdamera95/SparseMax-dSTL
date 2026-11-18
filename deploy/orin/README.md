@@ -46,4 +46,16 @@ One Jetson AGX Orin 64 GB against one workstation GPU (NVIDIA RTX PRO 6000 Black
 
 The script prints the exact robustness to four decimals. On the board's second run every printed value equals the workstation's, before the first update and after each of the ten; on its first run one value differs in the last digit (0.1717 against 0.1716). The sign is the same after every update.
 
-With the full install, `uv sync --locked`, the two test commands of the main README pass on the board: 381 tests in 28 minutes, then 2 in 2 minutes.
+With the full install, `uv sync --locked`, the test suite of version 0.1.0 passed on the board in two processes: 381 tests in 28 minutes, then 2 in 2 minutes.
+
+## In the paper
+
+The paper ran the manipulator optimization on the same board with Warp built for CUDA 13, as the same code that runs on the workstation: the MuJoCo Warp simulation and its reverse pass, the predicates, the robustness, its gradient and the solver. It reports (Appendix II-G, Table XII), for one run at a horizon of 10 s:
+
+| | Workstation, NVIDIA RTX PRO 6000 | Jetson AGX Orin 64 GB |
+|---|---|---|
+| one physics step of one world, forward and reverse | 236 and 800 µs | 298 and 1106 µs |
+| one update of the optimization | 6.2 s | 8.6 to 8.7 s |
+| compilation of the kernels, once | | 80 s |
+
+The first satisfying update is the same on both machines, and their exact robustness differs by at most $2.8 \times 10^{-6}$ over 30 updates. On the workstation the specification, its gradient, the exact robustness and the solver together take under 0.05 s of an update; the rest is the simulation and its reverse pass.
